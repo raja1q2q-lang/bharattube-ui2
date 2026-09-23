@@ -25,10 +25,13 @@ import {
 } from "@/components/VideoComponents";
 import { formatCount, formatDuration } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
-import { apiUrl } from "@/lib/api-config";
+import { adaptChannel, adaptVideos } from "@/lib/backend-adapter";
+import { apiUrl, channelApiUrl, isRouteNotFound } from "@/lib/api-config";
 
 interface ChannelProfile {
-  id: number;
+  id: string;
+  ownerUserId?: string;
+  ownerUsername?: string;
   username: string;
   displayName: string;
   avatarUrl: string | null;
@@ -67,26 +70,103 @@ export default function ChannelPage({
   >("Home");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  /** True when this backend exposes no channel route at all. */
+  const [channelRouteMissing, setChannelRouteMissing] = useState(false);
 
+  /**
+   * Loads REAL channel data from the deployed backend.
+   *
+   * VERIFIED backend contract (probed live, not assumed):
+   *   GET /channel/:handle → { success, data: { _id, owner:{_id,name,
+   *        profilePhoto,username}, channelName, handle, logo, banner,
+   *        description, subscribers[], totalViews, totalVideos,
+   *        verified, subscribersCount } }
+   * The route is SINGULAR and keyed by the channel HANDLE.
+   * Channel videos come from the real GET /videos?userId=<ownerUserId>.
+   *
+   * Nothing is mocked: every value below is mapped from the API response.
+   */
   const loadChannel = useCallback(async () => {
     setLoading(true);
     setError("");
+    setChannelRouteMissing(false);
+
     try {
-      const res = await fetch(apiUrl(`/channels?id=${id}`), { cache: "no-store" });
-      const data = await res.json();
+      const res = await fetch(channelApiUrl(id), { cache: "no-store" });
+      let payload: unknown = null;
+      try {
+        payload = await res.json();
+      } catch {
+        payload = null;
+      }
+
       if (!res.ok) {
-        setError(data.error || "Channel not found");
+        // Distinguish "this backend has no channel route" from "not this channel".
+        if (isRouteNotFound(payload)) {
+          setChannelRouteMissing(true);
+        } else {
+          const msg =
+            payload && typeof payload === "object"
+              ? String(
+                  (payload as Record<string, unknown>).message ||
+                    (payload as Record<string, unknown>).error ||
+                    ""
+                )
+              : "";
+          setError(msg || "Channel not found");
+        }
+        setChannel(null);
+        setVideos([]);
+        setPlaylists([]);
         return;
       }
-      setChannel(data.channel);
-      setVideos(data.videos || []);
-      setPlaylists(data.playlists || []);
+
+      const adapted = adaptChannel(payload, { currentUserId: user?.id != null ? String(user.id) : null });
+      if (!adapted) {
+        setError("Channel not found");
+        return;
+      }
+
+      setChannel({
+        id: adapted.id,
+        ownerUserId: adapted.ownerUserId,
+        ownerUsername: adapted.ownerUsername,
+        username: adapted.username,
+        displayName: adapted.displayName,
+        avatarUrl: adapted.avatarUrl,
+        bannerUrl: adapted.bannerUrl,
+        bio: adapted.bio,
+        isVerified: adapted.isVerified,
+        subscriberCount: adapted.subscriberCount,
+        isSubscribed: adapted.isSubscribed,
+        totalVideos: adapted.totalVideos,
+        totalViews: adapted.totalViews,
+        createdAt: adapted.createdAt,
+      });
+
+      // Channel videos — real endpoint, keyed by the channel OWNER id.
+      if (adapted.ownerUserId) {
+        const vres = await fetch(
+          apiUrl(`/videos?userId=${encodeURIComponent(adapted.ownerUserId)}`),
+          { cache: "no-store" }
+        );
+        if (vres.ok) {
+          const vpayload = await vres.json();
+          setVideos(adaptVideos(vpayload) as unknown as VideoItem[]);
+        } else {
+          setVideos([]);
+        }
+      } else {
+        setVideos([]);
+      }
+
+      setPlaylists([]);
     } catch {
       setError("Failed to load channel data.");
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, user?.id]);
 
   useEffect(() => {
     loadChannel();
@@ -97,6 +177,43 @@ export default function ChannelPage({
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
         <div className="w-full h-44 sm:h-56 rounded-2xl bg-zinc-200 dark:bg-zinc-800 animate-pulse mb-6" />
         <SkeletonGrid count={4} />
+      </div>
+    );
+  }
+
+  /**
+    * This deployment's backend exposes `GET /channel/:handle` (singular, keyed
+    * by the channel HANDLE) and has no channel route at all if this flag is set.
+    * We never fabricate an identity — the notice below is exact.
+    */
+  if (channelRouteMissing && !channel) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 mb-6">
+          <h2 className="text-sm font-bold text-amber-700 dark:text-amber-400">
+            Channel information isn&apos;t available from this backend
+          </h2>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 leading-relaxed">
+            The API responds{" "}
+            <span className="font-mono">Route &apos;/channel/{id}&apos; not found</span>.
+            Videos below are the real uploads returned by the API for this user.
+          </p>
+        </div>
+
+        {loading ? (
+          <SkeletonGrid count={4} />
+        ) : videos.length === 0 ? (
+          <EmptyState
+            title="No videos from this user yet"
+            description="The API returned no uploads for this user id."
+          />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-x-5 gap-y-8">
+            {videos.map((v) => (
+              <VideoCard key={v.id} video={v} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -115,7 +232,12 @@ export default function ChannelPage({
   const standardVideos = videos.filter((v) => !v.isShort && !v.isLive);
   const shortVideos = videos.filter((v) => v.isShort);
   const liveVideos = videos.filter((v) => v.isLive);
-  const isOwner = user && user.id === channel.id;
+  // Ownership: compare the signed-in user id with the channel owner id.
+  const isOwner = Boolean(
+    user &&
+      (String(user.id) === String(channel.ownerUserId || "") ||
+        (channel.ownerUsername && String(user.username) === channel.ownerUsername))
+  );
 
   return (
     <div className="max-w-[1600px] mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-5">
@@ -196,7 +318,8 @@ export default function ChannelPage({
             </>
           ) : (
             <SubscribeButton
-              channelId={channel.id}
+              channelId={channel.username || channel.id}
+              isOwner={isOwner}
               initialSubscribed={channel.isSubscribed}
               onStatusChange={(sub, newCount) => {
                 setChannel((prev) =>

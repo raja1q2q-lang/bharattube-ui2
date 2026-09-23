@@ -11,7 +11,8 @@ import {
   ErrorState,
 } from "./VideoComponents";
 import { useApp } from "@/context/AppContext";
-import { apiUrl } from "@/lib/api-config";
+import { apiUrl, unwrapList } from "@/lib/api-config";
+import { adaptVideos } from "@/lib/backend-adapter";
 
 type FeedKey = "history" | "liked" | "watch_later" | "my_videos";
 type RemoveMode = "history" | "watch_later" | "delete_video" | null;
@@ -65,7 +66,7 @@ export function CollectionPage({
       const res = await fetch(apiUrl(`/videos?feed=${feed}`), { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load");
-      setVideos(data.videos || []);
+      setVideos(adaptVideos(data) as unknown as VideoItem[]);
     } catch {
       setError("Could not load this section from the server.");
     } finally {

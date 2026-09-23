@@ -12,7 +12,8 @@ import {
   ErrorState,
 } from "@/components/VideoComponents";
 import { useApp } from "@/context/AppContext";
-import { apiUrl } from "@/lib/api-config";
+import { apiUrl, unwrapList } from "@/lib/api-config";
+import { adaptVideos } from "@/lib/backend-adapter";
 
 export default function HomePage() {
   const { user, openUploadModal, feedRefreshTrigger } = useApp();
@@ -32,7 +33,7 @@ export default function HomePage() {
       );
       if (!res.ok) throw new Error("Failed to load video feed");
       const data = await res.json();
-      setVideos(data.videos || []);
+      setVideos(adaptVideos(data) as unknown as VideoItem[]);
 
       if (user) {
         const histRes = await fetch(apiUrl("/videos?feed=history"), {

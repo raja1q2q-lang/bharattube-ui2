@@ -29,6 +29,8 @@ import {
 import { formatCount, formatTimeAgo } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
 import { apiUrl } from "@/lib/api-config";
+import { adaptVideo, adaptVideos, unwrapEnvelope, listOf, channelHref } from "@/lib/backend-adapter";
+import { isUnsupportedResponse, capabilityOf } from "@/lib/backend-capabilities";
 
 interface CommentData {
   id: number;
@@ -77,6 +79,8 @@ export default function WatchPage({
   // Comments state
   const [comments, setComments] = useState<CommentData[]>([]);
   const [commentSort, setCommentSort] = useState<"newest" | "top">("newest");
+  /** True when this backend exposes no comments route at all. */
+  const [commentsUnsupported, setCommentsUnsupported] = useState(false);
   const [newCommentText, setNewCommentText] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const [replyingToId, setReplyingToId] = useState<number | null>(null);
@@ -84,18 +88,63 @@ export default function WatchPage({
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
 
+  /**
+   * Loads the video from the deployed backend.
+   *
+   * VERIFIED contract: GET /videos/:id → { success, statusCode, message, data }
+   * where `data` is the video object (404 → "Video not found").
+   * Related videos come from the real GET /videos list (backend has no
+   * dedicated related endpoint).
+   */
   const fetchWatchData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const res = await fetch(apiUrl(`/videos/${videoId}`), { cache: "no-store" });
-      const data = await res.json();
+      let payload: unknown = null;
+      try {
+        payload = await res.json();
+      } catch {
+        payload = null;
+      }
+
       if (!res.ok) {
-        setError(data.error || "Video unavailable");
+        const msg =
+          payload && typeof payload === "object"
+            ? String((payload as Record<string, any>).message || "")
+            : "";
+        setError(
+          /route '.*' not found/i.test(msg)
+            ? "Video playback isn't available on this backend."
+            : msg || "Video unavailable"
+        );
         return;
       }
-      setVideo(data.video);
-      setRelatedVideos(data.relatedVideos || []);
+
+      const adapted = adaptVideo(unwrapEnvelope(payload));
+      if (!adapted) {
+        setError("Video unavailable");
+        return;
+      }
+
+      setVideo({
+        ...(adapted as unknown as VideoItem),
+        userReaction: null,
+        isSubscribed: false,
+        isSaved: false,
+      } as any);
+
+      // Real related videos from the live list endpoint (exclude this one).
+      const vres = await fetch(apiUrl("/videos"), { cache: "no-store" });
+      if (vres.ok) {
+        const vpayload = await vres.json();
+        const related = (adaptVideos(vpayload) as unknown as VideoItem[]).filter(
+          (v) => String(v.id) !== String(videoId)
+        );
+        setRelatedVideos(related.slice(0, 15));
+      } else {
+        setRelatedVideos([]);
+      }
     } catch {
       setError("Network error loading video.");
     } finally {
@@ -103,17 +152,42 @@ export default function WatchPage({
     }
   }, [videoId]);
 
+  /**
+   * Comments.
+   * VERIFIED: the backend has no comment route, so we surface that clearly
+   * rather than rendering a misleading "no comments yet" empty state.
+   */
   const fetchComments = useCallback(async () => {
     try {
-      const res = await fetch(apiUrl(`/comments?videoId=${videoId}&sort=${commentSort}`),
+      const res = await fetch(
+        apiUrl(`/comments?videoId=${videoId}&sort=${commentSort}`),
         { cache: "no-store" }
       );
-      if (res.ok) {
-        const data = await res.json();
-        setComments(data.comments || []);
+
+      let payload: unknown = null;
+      try {
+        payload = await res.json();
+      } catch {
+        payload = null;
       }
+
+      if (res.ok) {
+        setCommentsUnsupported(false);
+        const list = listOf(payload, "comments");
+        setComments(list as unknown as CommentData[]);
+        return;
+      }
+
+      if (isUnsupportedResponse(payload)) {
+        setCommentsUnsupported(true);
+        setComments([]);
+        return;
+      }
+
+      setCommentsUnsupported(false);
+      setComments([]);
     } catch {
-      // ignore
+      // network problem: leave whatever we had
     }
   }, [videoId, commentSort]);
 
@@ -357,7 +431,7 @@ export default function WatchPage({
           <div className="mt-3 px-3 sm:px-0 flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-zinc-200 dark:border-zinc-800">
             {/* Creator Info + Subscribe Button */}
             <div className="flex items-center gap-3">
-              <Link href={`/channel/${video.creator.id}`}>
+              <Link href={channelHref(video.creator)}>
                 <UserAvatar
                   name={video.creator.displayName}
                   avatarUrl={video.creator.avatarUrl}
@@ -366,7 +440,7 @@ export default function WatchPage({
               </Link>
               <div className="mr-2">
                 <Link
-                  href={`/channel/${video.creator.id}`}
+                  href={channelHref(video.creator)}
                   className="font-bold text-sm sm:text-base text-zinc-900 dark:text-zinc-100 hover:text-red-500 inline-flex items-center gap-1"
                 >
                   <span>{video.creator.displayName}</span>
@@ -611,7 +685,18 @@ export default function WatchPage({
             </form>
 
             {/* Comments List */}
-            {rootComments.length === 0 ? (
+            {commentsUnsupported ? (
+              <div className="py-10 text-center text-sm text-zinc-500 border border-dashed border-amber-500/40 bg-amber-500/5 rounded-2xl px-4">
+                {capabilityOf("comments").message}
+                <div className="text-[11px] text-zinc-500 mt-1">
+                  The API responds{" "}
+                  <span className="font-mono">
+                    Route &apos;/comments&apos; not found
+                  </span>
+                  , so no comments are shown.
+                </div>
+              </div>
+            ) : rootComments.length === 0 ? (
               <div className="py-10 text-center text-sm text-zinc-500 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-2xl">
                 No comments yet. Start the conversation!
               </div>
@@ -621,7 +706,7 @@ export default function WatchPage({
                   const replies = getReplies(comment.id);
                   return (
                     <div key={comment.id} className="flex items-start gap-3">
-                      <Link href={`/channel/${comment.author.id}`}>
+                      <Link href={channelHref(comment.author)}>
                         <UserAvatar
                           name={comment.author.displayName}
                           avatarUrl={comment.author.avatarUrl}
@@ -632,7 +717,7 @@ export default function WatchPage({
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 text-xs">
                           <Link
-                            href={`/channel/${comment.author.id}`}
+                            href={channelHref(comment.author)}
                             className="font-bold text-zinc-900 dark:text-zinc-100 hover:underline"
                           >
                             @{comment.author.username}

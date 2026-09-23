@@ -26,7 +26,8 @@ import {
   ErrorState,
 } from "@/components/VideoComponents";
 import { formatCount, formatDuration, formatTimeAgo } from "@/lib/format";
-import { apiUrl } from "@/lib/api-config";
+import { apiUrl, unwrapList } from "@/lib/api-config";
+import { adaptVideos } from "@/lib/backend-adapter";
 
 type Tab = "videos" | "shorts";
 
@@ -83,7 +84,7 @@ function MyVideosContent() {
       const res = await fetch(apiUrl("/videos?feed=my_videos"), { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load");
-      setVideos(data.videos || []);
+      setVideos(adaptVideos(data) as unknown as VideoItem[]);
     } catch {
       setError("Could not load your videos.");
     } finally {

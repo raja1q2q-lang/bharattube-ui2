@@ -62,7 +62,10 @@ export const IS_DEV_LOCAL =
  * routes (/api/auth/google, /api/auth).
  */
 export const authEndpoints = {
-  /** Full-page redirect target that starts the backend's Google OAuth. */
+  /**
+   * Starts the backend's Google OAuth. This is a real top-level navigation to
+   * the backend, which then redirects to its own configured frontend.
+   */
   google: USE_EXTERNAL_BACKEND
     ? `${EXTERNAL_API_BASE}/auth/google`
     : "/api/auth/google",
@@ -72,16 +75,12 @@ export const authEndpoints = {
     ? `${EXTERNAL_API_BASE}/auth/google/callback`
     : "/api/auth/google/callback",
 
-  /** Current authenticated user ("me"). */
+  /** Current authenticated user ("me"). Proxy-aware. */
   me: USE_EXTERNAL_BACKEND ? `${EXTERNAL_API_BASE}/auth/me` : "/api/auth",
 
-  logout: USE_EXTERNAL_BACKEND
-    ? `${EXTERNAL_API_BASE}/auth/logout`
-    : "/api/auth",
+  logout: USE_EXTERNAL_BACKEND ? `${EXTERNAL_API_BASE}/auth/logout` : "/api/auth",
 
-  login: USE_EXTERNAL_BACKEND
-    ? `${EXTERNAL_API_BASE}/auth/login`
-    : "/api/auth",
+  login: USE_EXTERNAL_BACKEND ? `${EXTERNAL_API_BASE}/auth/login` : "/api/auth",
 
   /**
    * Email/password account creation on the external backend.
@@ -149,6 +148,83 @@ export const videoUploadCandidates: string[] = USE_EXTERNAL_BACKEND
       `${EXTERNAL_API_BASE}/upload`,
     ]
   : ["/api/upload"];
+
+/**
+ * Unwrap a list from any of the envelope shapes the deployed backend uses.
+ *
+ * The production backend replies as:
+ *   { success, statusCode, message, data: { videos: [...] } }
+ * while some routes return a flat array or { videos: [...] }.
+ * This keeps every page working against the real API without duplicating
+ * shape-sniffing logic, and never fabricates data (always returns [] if absent).
+ */
+export function unwrapList<T = unknown>(payload: unknown, key: string): T[] {
+  if (!payload || typeof payload !== "object") return [];
+  const root = payload as Record<string, unknown>;
+  const data = (root.data && typeof root.data === "object"
+    ? (root.data as Record<string, unknown>)
+    : null) as Record<string, unknown> | null;
+
+  const candidates = [
+    root[key],
+    data ? data[key] : undefined,
+    root.data,
+    root.items,
+    root.results,
+    payload,
+  ];
+
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c as T[];
+  }
+  return [];
+}
+
+/** True when the backend answered "route not found" (missing endpoint). */
+export function isMissingRoute(status: number, payload?: unknown): boolean {
+  if (status !== 404) return false;
+  const msg =
+    payload && typeof payload === "object"
+      ? String((payload as Record<string, unknown>).message || "")
+      : "";
+  return msg.includes("not found") || status === 404;
+}
+
+/**
+ * True only when the backend replied that the ROUTE does not exist
+ * ("Route '/api/v1/x' not found"), as opposed to a resource 404
+ * ("Video not found"). Used to distinguish a missing feature from missing data.
+ */
+export function isRouteNotFound(payload: unknown): boolean {
+  const msg =
+    payload && typeof payload === "object"
+      ? String((payload as Record<string, unknown>).message || "")
+      : "";
+  return /route '.*' not found/i.test(msg);
+}
+
+/**
+ * Channel URL for the deployed backend.
+ *
+ * VERIFIED: the backend exposes `GET /channel/:handle` (singular, keyed by the
+ * channel HANDLE). There is no `/channels` collection route, and an ObjectId
+ * returns "Channel not found". So we always address a channel by its handle.
+ */
+export function channelApiUrl(handleOrId: string): string {
+  const key = encodeURIComponent(String(handleOrId || "").trim());
+  return `${EXTERNAL_API_BASE}/channel/${key}`;
+}
+
+/**
+ * Subscribe endpoint used by the Subscribe button.
+ * NOTE: the deployed backend does NOT implement this route yet (verified:
+ * POST/DELETE/PUT /channel/:handle/subscribe → "Route not found"). The button
+ * calls it and reports the gap honestly rather than faking success.
+ */
+export function subscribeApiUrl(handleOrId: string | number): string {
+  const key = encodeURIComponent(String(handleOrId ?? "").trim());
+  return `${EXTERNAL_API_BASE}/channel/${key}/subscribe`;
+}
 
 /**
  * Google login must start by redirecting the user to:

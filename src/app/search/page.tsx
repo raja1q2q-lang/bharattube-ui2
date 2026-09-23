@@ -15,9 +15,12 @@ import {
 } from "@/components/VideoComponents";
 import { formatCount } from "@/lib/format";
 import { apiUrl } from "@/lib/api-config";
+import { adaptVideos, adaptChannelResults , channelHref } from "@/lib/backend-adapter";
+import { useApp } from "@/context/AppContext";
 
 interface ChannelResult {
-  id: number;
+  id: string | number;
+  handle?: string;
   username: string;
   displayName: string;
   avatarUrl: string | null;
@@ -37,6 +40,7 @@ interface PlaylistResult {
 }
 
 function SearchContent() {
+  const { user } = useApp();
   const searchParams = useSearchParams();
   const query = searchParams.get("q") || "";
 
@@ -71,18 +75,19 @@ function SearchContent() {
         throw new Error("search failed");
       }
       const data = await res.json();
-      const rawVideos = Array.isArray(data.videos)
-        ? data.videos
-        : Array.isArray(data.data)
-        ? data.data
-        : Array.isArray(data)
-        ? data
-        : [];
-      const rawChannels = Array.isArray(data.channels) ? data.channels : [];
-      const rawPlaylists = Array.isArray(data.playlists) ? data.playlists : [];
-      setVideos(rawVideos);
-      setChannels(rawChannels);
-      setPlaylists(rawPlaylists);
+
+      // Map the backend's shapes onto what this page renders.
+      // Videos: { _id, owner:{...}, thumbnail, views, createdAt, ... }
+      // Channels: { _id, channelName, handle, logo, subscribers[] }
+      setVideos(adaptVideos(data) as unknown as VideoItem[]);
+      setChannels(
+        adaptChannelResults(data, "channels", {
+          currentUserId: user?.id != null ? String(user.id) : null,
+        }) as unknown as ChannelResult[]
+      );
+      setPlaylists(
+        (Array.isArray(data.playlists) ? data.playlists : []) as PlaylistResult[]
+      );
     } catch {
       setError("Could not load search results. Check your connection and try again.");
       setVideos([]);
@@ -177,7 +182,7 @@ function SearchContent() {
                   className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-zinc-100/70 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800"
                 >
                   <Link
-                    href={`/channel/${ch.id}`}
+                    href={channelHref({ handle: ch.handle, id: ch.id })}
                     className="flex items-center gap-4"
                   >
                     <UserAvatar

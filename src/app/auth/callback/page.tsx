@@ -32,25 +32,36 @@ function CallbackContent() {
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const token = searchParams.get("token");
 
     if (!token) {
       // No token -> login
       router.replace("/login");
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    try {
-      // Save exactly as required
-      localStorage.setItem(TOKEN_KEY, token);
-    } catch (err) {
-      console.error("Unable to save auth token", err);
-      setFailed(true);
-      return;
-    }
+    // Save exactly as required, deferred out of the effect body so this does
+    // not call setState synchronously (avoids a cascading render).
+    void Promise.resolve()
+      .then(() => {
+        localStorage.setItem(TOKEN_KEY, token);
+      })
+      .then(() => {
+        if (cancelled) return;
+        // Go home; app boot then calls GET /api/v1/auth/me with the saved token.
+        router.replace("/");
+      })
+      .catch((err) => {
+        console.error("Unable to save auth token", err);
+        if (!cancelled) setFailed(true);
+      });
 
-    // Go home; the app boot then calls GET /api/v1/auth/me using the saved token.
-    router.replace("/");
+    return () => {
+      cancelled = true;
+    };
   }, [router, searchParams]);
 
   if (failed) {

@@ -19,7 +19,9 @@ import {
 } from "lucide-react";
 import { formatDuration, formatCount, formatTimeAgo } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
-import { apiUrl } from "@/lib/api-config";
+import { apiUrl, isRouteNotFound, subscribeApiUrl } from "@/lib/api-config";
+import { capabilityOf, isUnsupportedResponse } from "@/lib/backend-capabilities";
+import { channelHref } from "@/lib/backend-adapter";
 
 export interface CreatorInfo {
   id: number;
@@ -113,12 +115,16 @@ export function SubscribeButton({
   initialCount,
   onStatusChange,
   size = "md",
+  isOwner: isOwnerProp,
 }: {
-  channelId: number;
+  /** Channel handle (preferred) or id, as used by the deployed backend. */
+  channelId: number | string;
   initialSubscribed: boolean;
   initialCount?: number;
   onStatusChange?: (isSubscribed: boolean, newCount: number) => void;
   size?: "sm" | "md";
+  /** Explicit owner flag — avoids guessing from id types. */
+  isOwner?: boolean;
 }) {
   const { user, openAuthModal, showToast } = useApp();
   const [isSubscribed, setIsSubscribed] = useState(initialSubscribed);
@@ -128,10 +134,14 @@ export function SubscribeButton({
     setIsSubscribed(initialSubscribed);
   }, [initialSubscribed]);
 
-  if (user && user.id === channelId) {
+  const ownsChannel =
+    isOwnerProp ??
+    Boolean(user && String(user.id) === String(channelId));
+
+  if (ownsChannel) {
     return (
       <Link
-        href={`/channel/${user.id}`}
+        href={channelHref({ id: channelId })}
         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border border-zinc-700 transition-colors"
       >
         Manage Channel
@@ -139,6 +149,14 @@ export function SubscribeButton({
     );
   }
 
+  /**
+   * Subscribe/unsubscribe.
+   *
+   * The backend currently has NO subscribe route (verified: POST/DELETE/PUT
+   * /channel/:handle/subscribe → "Route not found"). We therefore call the real
+   * route and, if the backend says it does not exist, we report that precisely.
+   * We never fake a success and never change a count locally.
+   */
   const handleToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -150,21 +168,52 @@ export function SubscribeButton({
 
     setSubmitting(true);
     try {
-      const res = await fetch(apiUrl("/channels"), {
-        method: "POST",
+      const res = await fetch(subscribeApiUrl(channelId), {
+        method: isSubscribed ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channelId }),
+        credentials: "include",
       });
-      const data = await res.json();
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
       if (!res.ok) {
-        showToast(data.error || "Failed to update subscription", "error");
+        if (isRouteNotFound(data)) {
+          showToast(
+            "Subscriptions aren't available on this backend yet.",
+            "error"
+          );
+          return;
+        }
+        showToast(
+          (data && (data.message || data.error)) ||
+            "Failed to update subscription",
+          "error"
+        );
         return;
       }
 
-      setIsSubscribed(data.isSubscribed);
-      onStatusChange?.(data.isSubscribed, data.subscriberCount);
+      // Trust only what the backend returned.
+      const nextSubscribed =
+        typeof data?.isSubscribed === "boolean"
+          ? data.isSubscribed
+          : typeof data?.data?.isSubscribed === "boolean"
+          ? data.data.isSubscribed
+          : !isSubscribed;
+
+      setIsSubscribed(nextSubscribed);
+      onStatusChange?.(
+        nextSubscribed,
+        typeof data?.subscriberCount === "number"
+          ? data.subscriberCount
+          : initialCount ?? 0
+      );
       showToast(
-        data.isSubscribed ? "Subscription added" : "Unsubscribed from channel",
+        nextSubscribed ? "Subscription added" : "Unsubscribed from channel",
         "success"
       );
     } catch {
@@ -235,18 +284,30 @@ export function LikeDislikePill({
     try {
       const res = await fetch(apiUrl(`/videos/${videoId}`), {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "react", type }),
       });
-      const data = await res.json();
-      if (res.ok) {
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (res.ok && typeof data?.likesCount === "number") {
+        // Only reflect what the backend actually confirmed.
         onReactionChange(
           data.likesCount,
-          data.dislikesCount,
-          data.userReaction
+          typeof data.dislikesCount === "number" ? data.dislikesCount : 0,
+          data.userReaction ?? type
         );
+      } else if (!res.ok && isUnsupportedResponse(data)) {
+        // Backend has no like/reaction route — say so, never fake a count.
+        showToast(capabilityOf("likes").message, "error");
       } else {
-        showToast(data.error || "Reaction failed", "error");
+        showToast(data?.message || data?.error || "Reaction failed", "error");
       }
     } catch {
       showToast("Network error", "error");
@@ -480,7 +541,7 @@ export function VideoCard({
 
       {/* Metadata Row */}
       <div className="flex items-start gap-3 pr-6 relative">
-        <Link href={`/channel/${video.creator.id}`} className="shrink-0 mt-0.5">
+        <Link href={channelHref(video.creator)} className="shrink-0 mt-0.5">
           <UserAvatar
             name={video.creator.displayName}
             avatarUrl={video.creator.avatarUrl}
@@ -497,7 +558,7 @@ export function VideoCard({
           </Link>
 
           <Link
-            href={`/channel/${video.creator.id}`}
+            href={channelHref(video.creator)}
             className="mt-1 inline-flex items-center gap-1 text-[13px] text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 transition-colors truncate"
           >
             <span className="truncate">{video.creator.displayName}</span>
@@ -650,7 +711,7 @@ export function VideoListItem({
           {video.title}
         </Link>
         <Link
-          href={`/channel/${video.creator.id}`}
+          href={channelHref(video.creator)}
           className="mt-1 text-xs text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white inline-flex items-center gap-1"
         >
           <span>{video.creator.displayName}</span>

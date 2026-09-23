@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { googleLoginUrl } from "@/lib/api-config";
 
@@ -43,6 +43,15 @@ export function AuthForm({
   const [error, setError] = useState(initialError || "");
   const [googleStarting, setGoogleStarting] = useState(false);
 
+  // Sync the incoming `initialError` prop into local state using React's
+  // recommended "adjust state during render" pattern. This replaces a
+  // setState-in-effect that caused an extra render pass on every mount.
+  const [lastInitialError, setLastInitialError] = useState(initialError);
+  if (initialError !== lastInitialError) {
+    setLastInitialError(initialError);
+    setError(initialError || "");
+  }
+
   /**
    * Full-page redirect to the BACKEND's Google OAuth start endpoint.
    * The frontend never implements OAuth itself and never sees any secret.
@@ -61,10 +70,6 @@ export function AuthForm({
       );
     }
   };
-
-  useEffect(() => {
-    setError(initialError || "");
-  }, [initialError]);
 
   return (
     <div className="space-y-4">

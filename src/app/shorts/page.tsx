@@ -31,6 +31,7 @@ import {
 import { formatCount, formatTimeAgo } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
 import { apiUrl } from "@/lib/api-config";
+import { channelHref } from "@/lib/backend-adapter";
 
 interface ShortComment {
   id: number;
@@ -237,7 +238,7 @@ function ShortSlide({
       {/* Bottom info */}
       <div className="absolute bottom-0 inset-x-0 p-4 pr-20 pb-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent text-white px-safe">
         <div className="flex items-center gap-2.5 mb-2">
-          <Link href={`/channel/${short.creator.id}`} aria-label={`Open ${short.creator.displayName} channel`}>
+          <Link href={channelHref(short.creator)} aria-label={`Open ${short.creator.displayName} channel`}>
             <UserAvatar
               name={short.creator.displayName}
               avatarUrl={short.creator.avatarUrl}
@@ -245,7 +246,7 @@ function ShortSlide({
             />
           </Link>
           <Link
-            href={`/channel/${short.creator.id}`}
+            href={channelHref(short.creator)}
             className="font-bold text-sm truncate hover:underline"
           >
             @{short.creator.username}

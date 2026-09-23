@@ -13,6 +13,7 @@ import {
 import { useApp } from "@/context/AppContext";
 import { formatCount } from "@/lib/format";
 import { apiUrl } from "@/lib/api-config";
+import { channelHref } from "@/lib/backend-adapter";
 
 interface SubscribedChannel {
   channelId: number;
@@ -94,7 +95,7 @@ export default function SubscriptionsPage() {
             {channels.map((ch) => (
               <Link
                 key={ch.channelId}
-                href={`/channel/${ch.channelId}`}
+                href={channelHref({ id: ch.channelId, username: ch.username })}
                 className="flex items-center gap-3 px-3.5 py-2 rounded-2xl bg-zinc-100 dark:bg-zinc-900 hover:bg-zinc-200 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-800 shrink-0 transition-colors"
               >
                 <UserAvatar

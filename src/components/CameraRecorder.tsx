@@ -95,8 +95,14 @@ export function CameraRecorder({
   }, [facing, vertical, stopStream]);
 
   useEffect(() => {
-    startCamera();
+    // Start the camera asynchronously (after the current commit) so the
+    // effect does not call setState synchronously — avoids a cascading render.
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (!cancelled) startCamera();
+    });
     return () => {
+      cancelled = true;
       stopStream();
       if (timerRef.current) clearInterval(timerRef.current);
     };
