@@ -21,6 +21,7 @@ import {
   USE_EXTERNAL_BACKEND,
   authEndpoints,
   normalizeMeResponse,
+  describeOAuthError,
   apiUrl,
 } from "@/lib/api-config";
 
@@ -243,6 +244,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         /* External backend (Express /api/v1): read session via /auth/me. */
         if (USE_EXTERNAL_BACKEND) {
+          if (typeof window !== "undefined") {
+            const urlParams = new URLSearchParams(window.location.search);
+            const qToken =
+              urlParams.get("token") ||
+              urlParams.get("accessToken") ||
+              urlParams.get("access_token") ||
+              urlParams.get("jwt") ||
+              urlParams.get("authToken");
+            if (qToken) {
+              saveSessionToken(qToken);
+              urlParams.delete("token");
+              urlParams.delete("accessToken");
+              urlParams.delete("access_token");
+              urlParams.delete("jwt");
+              urlParams.delete("authToken");
+              const cleanSearch = urlParams.toString();
+              const cleanUrl =
+                window.location.pathname +
+                (cleanSearch ? `?${cleanSearch}` : "") +
+                window.location.hash;
+              window.history.replaceState(null, "", cleanUrl);
+            }
+            const qError =
+              urlParams.get("error") ||
+              urlParams.get("google_error") ||
+              urlParams.get("errorCode");
+            if (qError) {
+              showToast(describeOAuthError(urlParams), "error");
+              urlParams.delete("error");
+              urlParams.delete("google_error");
+              urlParams.delete("errorCode");
+              const cleanSearch = urlParams.toString();
+              const cleanUrl =
+                window.location.pathname +
+                (cleanSearch ? `?${cleanSearch}` : "") +
+                window.location.hash;
+              window.history.replaceState(null, "", cleanUrl);
+            }
+          }
+
           const extRes = await fetch(authEndpoints.me, {
             cache: "no-store",
             credentials: "include",

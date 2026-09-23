@@ -1,10 +1,21 @@
 export const UNAUTHORIZED_EVENT = "aether:unauthorized";
+
+/**
+ * Primary token key expected by the deployed BharatTube backend.
+ * Google OAuth callback stores exactly: localStorage.setItem("bharattube_token", token)
+ * and the API client reads localStorage.getItem("bharattube_token") and sends
+ * Authorization: Bearer <token>.
+ */
+export const PRIMARY_SESSION_TOKEN_KEY = "bharattube_token";
+
 export const SESSION_TOKEN_KEY = "bharattube_session_token";
 export const LEGACY_SESSION_TOKEN_KEY = "aether_session_token";
 export const SESSION_COOKIE_NAME = "bharattube_session_client";
 export const LEGACY_SESSION_COOKIE_NAME = "aether_session_client";
 export const SESSION_SNAPSHOT_KEY = "bharattube_session_snapshot";
 export const LEGACY_SESSION_SNAPSHOT_KEY = "aether_session_snapshot";
+
+import { EXTERNAL_API_BASE } from "./api-config";
 
 /* ------------------------------------------------------------------ */
 /* Session token storage                                               */
@@ -71,10 +82,20 @@ function clearCookie(name: string) {
   }
 }
 
+const ALL_TOKEN_KEYS = [
+  PRIMARY_SESSION_TOKEN_KEY,
+  SESSION_TOKEN_KEY,
+  LEGACY_SESSION_TOKEN_KEY,
+];
+
 function readFromStorage(store: Storage | undefined): string | null {
   if (!store) return null;
   try {
-    return store.getItem(SESSION_TOKEN_KEY);
+    for (const key of ALL_TOKEN_KEYS) {
+      const value = store.getItem(key);
+      if (value) return value;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -83,6 +104,9 @@ function readFromStorage(store: Storage | undefined): string | null {
 function writeToStorage(store: Storage | undefined, value: string) {
   if (!store) return;
   try {
+    // Primary key required by the backend and OAuth callback
+    store.setItem(PRIMARY_SESSION_TOKEN_KEY, value);
+    // Backwards-compatible keys
     store.setItem(SESSION_TOKEN_KEY, value);
   } catch {
     /* ignore */
@@ -92,7 +116,9 @@ function writeToStorage(store: Storage | undefined, value: string) {
 function removeFromStorage(store: Storage | undefined) {
   if (!store) return;
   try {
-    store.removeItem(SESSION_TOKEN_KEY);
+    for (const key of ALL_TOKEN_KEYS) {
+      store.removeItem(key);
+    }
   } catch {
     /* ignore */
   }
@@ -273,10 +299,11 @@ export function installAuthFetchInterceptor(): void {
 
   // External backend base (e.g. https://bharattube-...onrender.com/api/v1)
   const externalBase = (
+    EXTERNAL_API_BASE ||
     process.env.NEXT_PUBLIC_API_URL ||
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.VITE_API_URL ||
-    ""
+    "https://bharattube-ylmq.onrender.com/api/v1"
   ).replace(/\/+$/, "");
 
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {

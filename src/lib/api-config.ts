@@ -151,33 +151,14 @@ export const videoUploadCandidates: string[] = USE_EXTERNAL_BACKEND
   : ["/api/upload"];
 
 /**
- * URL the browser is sent to when the user clicks "Continue with Google".
+ * Google login must start by redirecting the user to:
+ * https://bharattube-ylmq.onrender.com/api/v1/auth/google
  *
- * For the external Express backend this resolves to exactly:
- *   http://localhost:5000/api/v1/auth/google
- *
- * Optional redirect hints (`redirect` / `returnTo` / `clientUrl`) are appended
- * so a backend that honours them returns the browser to this app's
- * `/auth/callback`. A backend that ignores unknown query params (and instead
- * uses its own configured CLIENT_URL) is unaffected — the base path is still
- * correct and the flow still completes.
+ * The frontend does NOT append any incorrect callback URL or query parameters.
+ * The backend manages the Google OAuth client and redirect URI directly.
  */
 export function googleLoginUrl(): string {
-  const base = authEndpoints.google; // absolute for external backend
-
-  if (!USE_EXTERNAL_BACKEND) {
-    return base; // same-origin built-in route
-  }
-
-  const callback = `${window.location.origin}/auth/callback`;
-  // Build the query string manually so we never depend on URL() base rules.
-  const params = new URLSearchParams({
-    redirect: callback,
-    returnTo: callback,
-    clientUrl: window.location.origin,
-  });
-  const sep = base.includes("?") ? "&" : "?";
-  return `${base}${sep}${params.toString()}`;
+  return authEndpoints.google;
 }
 
 /**
