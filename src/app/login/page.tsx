@@ -57,8 +57,7 @@ function LoginPageContent() {
         <div className="rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-xl p-6">
           <h1 className="text-lg font-bold mb-1">Sign in</h1>
           <p className="text-xs text-zinc-500 mb-5">
-            Continue with Google or use the email and password for your
-            BharatTube account.
+            Continue with Google to sign in to your BharatTube account.
           </p>
           <AuthForm
             tab="login"

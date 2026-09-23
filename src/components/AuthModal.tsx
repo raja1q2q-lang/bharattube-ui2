@@ -56,30 +56,10 @@ export function AuthModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/50">
-          {(
-            [
-              { id: "login", label: "Sign In" },
-              { id: "signup", label: "Create Account" },
-            ] as const
-          ).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`flex-1 py-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer ${
-                tab === t.id
-                  ? "border-red-600 text-red-600 dark:text-red-500"
-                  : "border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-300"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
+        {/* Email/password signup removed — Google is the only login method,
+            so the Sign In / Create Account tabs are no longer shown. */}
         <div className="p-6">
-          <AuthForm tab={tab} onTabChange={setTab} onSuccess={onClose} />
+          <AuthForm tab="login" onSuccess={onClose} />
         </div>
       </div>
     </div>
