@@ -74,6 +74,13 @@ export default function ChannelPage({
   const [error, setError] = useState("");
   /** True when this backend exposes no channel route at all. */
   const [channelRouteMissing, setChannelRouteMissing] = useState(false);
+  /**
+   * True when the backend was reached and reported that the OWN channel record
+   * does not exist (verified: this DB currently contains no channel for the
+   * signed-in account). Distinct from a genuine "channel not found" for a
+   * public handle, and from a network/CORS failure.
+   */
+  const [ownChannelMissing, setOwnChannelMissing] = useState(false);
 
   /**
    * Loads REAL channel data from the deployed backend.
@@ -92,6 +99,7 @@ export default function ChannelPage({
     setLoading(true);
     setError("");
     setChannelRouteMissing(false);
+    setOwnChannelMissing(false);
 
     try {
       const res = await fetch(channelApiUrl(id), { cache: "no-store" });
@@ -150,8 +158,31 @@ export default function ChannelPage({
                 return;
               }
             }
-          } catch {
-            /* fall through to the honest error below */
+
+            // The backend answered (200-without-channel, 404, or empty) — the
+            // user's account simply has no channel record. Report THAT truth,
+            // never "Channel Not Found" (which would be a lie) and never a
+            // fabricated channel.
+            setOwnChannelMissing(true);
+            setChannel(null);
+            setVideos([]);
+            setPlaylists([]);
+            return;
+          } catch (err) {
+            // Distinguish a real reachability failure from a channel miss so
+            // the error shown is truthful during development too.
+            const isNetwork =
+              err instanceof TypeError ||
+              /fetch|network|cors/i.test(String((err as Error)?.message || ""));
+            setError(
+              isNetwork
+                ? "Could not reach the video service. The server may be offline or blocking requests from this site."
+                : "Failed to load channel data."
+            );
+            setChannel(null);
+            setVideos([]);
+            setPlaylists([]);
+            return;
           }
         }
 
@@ -207,8 +238,15 @@ export default function ChannelPage({
       }
 
       setPlaylists([]);
-    } catch {
-      setError("Failed to load channel data.");
+    } catch (err) {
+      const isNetwork =
+        err instanceof TypeError ||
+        /fetch|network|cors/i.test(String((err as Error)?.message || ""));
+      setError(
+        isNetwork
+          ? "Could not reach the video service. The server may be offline or blocking requests from this site."
+          : "Failed to load channel data."
+      );
     } finally {
       setLoading(false);
     }
@@ -260,6 +298,19 @@ export default function ChannelPage({
             ))}
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (ownChannelMissing && !channel) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-12">
+        <EmptyState
+          title="You don't have a channel yet"
+          description="No channel record exists for your account on the server. A channel appears here as soon as the backend creates one (it is normally created automatically on sign-up). Nothing was faked — this reflects the actual database state."
+          actionLabel="Go back"
+          onAction={() => router.push("/you")}
+        />
       </div>
     );
   }
