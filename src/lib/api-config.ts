@@ -1,5 +1,7 @@
 "use client";
 
+import { publicApiBase } from "./public-env";
+
 /**
  * ─────────────────────────────────────────────────────────────────────
  * SINGLE FRONTEND API BASE CONFIGURATION
@@ -39,12 +41,7 @@ function trimTrailingSlash(value: string): string {
  * Accepts the Next public var and — for parity with a Vite frontend — the
  * VITE_API_URL name too, so the same value works in either project.
  */
-export const EXTERNAL_API_BASE: string = trimTrailingSlash(
-  process.env.NEXT_PUBLIC_API_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.VITE_API_URL ||
-    "https://bharattube-ylmq.onrender.com/api/v1"
-);
+export const EXTERNAL_API_BASE: string = trimTrailingSlash(publicApiBase());
 
 /** True when an external backend is configured (default true for BharatTube). */
 export const USE_EXTERNAL_BACKEND = Boolean(

@@ -1,7 +1,6 @@
-import SignupPage from "@/app/signup/page";
+import SignupPage from "@/views/Signup";
 
-export const dynamic = "force-dynamic";
-
-export default function AuthSignupPage() {
+/** Server Component route entry — renders the interactive BharatTube view. */
+export default function Page() {
   return <SignupPage />;
 }

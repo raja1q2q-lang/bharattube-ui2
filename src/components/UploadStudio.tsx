@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   X,
-  Upload,
   Image as ImageIcon,
   Loader2,
   CheckCircle2,
@@ -121,7 +120,7 @@ export function UploadStudio({ onClose }: { onClose: () => void }) {
   };
 
   /** Reads duration and grabs a poster frame — metadata only, not the whole file. */
-  const probeVideo = (f: File, url: string): Promise<{ duration: number; thumb: File | null }> =>
+  const probeVideo = (_file: File, url: string): Promise<{ duration: number; thumb: File | null }> =>
     new Promise((resolve) => {
       const v = document.createElement("video");
       v.preload = "metadata";

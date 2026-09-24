@@ -16,6 +16,7 @@ export const SESSION_SNAPSHOT_KEY = "bharattube_session_snapshot";
 export const LEGACY_SESSION_SNAPSHOT_KEY = "aether_session_snapshot";
 
 import { EXTERNAL_API_BASE } from "./api-config";
+import { publicApiBase } from "./public-env";
 
 /* ------------------------------------------------------------------ */
 /* Session token storage                                               */
@@ -299,11 +300,7 @@ export function installAuthFetchInterceptor(): void {
 
   // External backend base (e.g. https://bharattube-...onrender.com/api/v1)
   const externalBase = (
-    EXTERNAL_API_BASE ||
-    process.env.NEXT_PUBLIC_API_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.VITE_API_URL ||
-    "https://bharattube-ylmq.onrender.com/api/v1"
+    EXTERNAL_API_BASE || publicApiBase()
   ).replace(/\/+$/, "");
 
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {

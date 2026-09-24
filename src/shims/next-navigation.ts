@@ -1,51 +1,62 @@
-import { useMemo } from "react";
-import { useLocation, useNavigate, useSearchParams as useRRSearchParams } from "react-router-dom";
-
-/** Drop-in replacement for `next/navigation`'s useRouter. */
-export function useRouter() {
-  const navigate = useNavigate();
-  return useMemo(
-    () => ({
-      push: (href: string, _opts?: unknown) => {
-        navigate(href);
-        window.scrollTo(0, 0);
-      },
-      replace: (href: string, _opts?: unknown) => navigate(href, { replace: true }),
-      back: () => navigate(-1),
-      forward: () => navigate(1),
-      refresh: () => {
-        /* SPA: data is re-fetched by components themselves */
-      },
-      prefetch: (_href: string) => {},
-    }),
-    [navigate]
-  );
-}
+/**
+ * next/navigation shim backed by react-router-dom.
+ * Exposes the same hooks the BharatTube UI uses:
+ *   usePathname · useParams · useSearchParams · useRouter
+ */
+import { useMemo, useRef } from "react";
+import {
+  useLocation,
+  useNavigate,
+  useParams as routerUseParams,
+  useSearchParams as routerUseSearchParams,
+} from "react-router-dom";
 
 export function usePathname(): string {
   return useLocation().pathname;
 }
 
+type Params<T extends string = string> = Record<T, string | undefined>;
+
+export function useParams<T extends Params = Params>(): T {
+  return (routerUseParams() ?? {}) as T;
+}
+
+/**
+ * Next's useSearchParams returns the URLSearchParams object directly
+ * (the setter in the original app is done via useRouter push/replace).
+ */
 export function useSearchParams(): URLSearchParams {
-  const [params] = useRRSearchParams();
-  return params;
+  return routerUseSearchParams()[0];
 }
 
-export function useParams<T extends Record<string, string>>(): T {
-  // Not used by the app directly; provided for completeness.
-  return {} as T;
+export interface NextRouter {
+  push: (to: string) => void;
+  replace: (to: string) => void;
+  back: () => void;
+  forward: () => void;
+  refresh: () => void;
 }
 
-/** Current router location (works with the hash router). */
-export function hashLocation(): { pathname: string; search: string } {
-  const raw = window.location.hash.replace(/^#/, "") || "/";
-  const idx = raw.indexOf("?");
-  return idx === -1
-    ? { pathname: raw, search: "" }
-    : { pathname: raw.slice(0, idx), search: raw.slice(idx) };
-}
-
-/** Base used for shareable links (origin + page path + hash). */
-export function appOrigin(): string {
-  return `${window.location.origin}${window.location.pathname.replace(/\/$/, "")}/#`;
+/**
+ * Like Next's router, the returned object is referentially STABLE across
+ * renders. Pages list `router` in useCallback/useEffect dependencies; an
+ * unstable object would re-run those effects after every state update and
+ * restart in-flight data loads.
+ */
+export function useRouter(): NextRouter {
+  const navigate = useNavigate();
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  return useMemo<NextRouter>(
+    () => ({
+      push: (to) => navigateRef.current(to),
+      replace: (to) => navigateRef.current(to, { replace: true }),
+      back: () => navigateRef.current(-1),
+      forward: () => navigateRef.current(1),
+      // Next's refresh() re-fetches server components; this SPA has none, and
+      // a full page reload here would race with a following push().
+      refresh: () => {},
+    }),
+    []
+  );
 }

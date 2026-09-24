@@ -1,7 +1,6 @@
-import LoginPage from "@/app/login/page";
+import LoginPage from "@/views/Login";
 
-export const dynamic = "force-dynamic";
-
-export default function AuthLoginPage() {
+/** Server Component route entry — renders the interactive BharatTube view. */
+export default function Page() {
   return <LoginPage />;
 }

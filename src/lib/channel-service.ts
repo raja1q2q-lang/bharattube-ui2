@@ -1,188 +1,111 @@
 /**
- * Shared channel lookup for BharatTube.
+ * Shared channel lookup used by BOTH the Channel page and Edit Channel.
  *
- * Both the Channel page and the Edit Channel page need "the real channel for
- * this account", so both use the helpers below instead of each performing its
- * own slightly different request. The endpoints are the ones the deployed
- * backend actually exposes (verified in api-config):
+ * VERIFIED backend contract (probed live):
+ *   GET /channel/me       (auth) → { success, data: <channel> }  | 401 | 404
+ *   GET /channel/:handle         → { success, data: <channel> }  | 404 "Channel not found"
  *
- *   GET /channel/me       → authenticated, server derives the owner's channel
- *   GET /channel/:handle  → public lookup, keyed by the channel HANDLE
- *
- * Nothing here fabricates data: every value is mapped from the API response.
+ * Every lookup resolves to an explicit, discriminated result so callers can
+ * render LOADING / SUCCESS / NOT FOUND / ERROR without ever inferring
+ * "not found" from a `null` that simply hasn't loaded yet.
  */
-import {
-  adaptChannel,
-  unwrapEnvelope,
-  type AdaptedChannel,
-} from "@/lib/backend-adapter";
-import {
-  channelApiUrl,
-  channelMeApiUrl,
-  isRouteNotFound,
-} from "@/lib/api-config";
+import { channelApiUrl, channelMeApiUrl, isRouteNotFound } from "./api-config";
+import { adaptChannel, unwrapEnvelope, type AdaptedChannel } from "./backend-adapter";
 
-/** A channel exactly as stored on the backend (plus form-facing fields). */
-export interface ChannelData extends AdaptedChannel {
-  contactEmail: string;
-  links: { label: string; url: string }[];
+export type ChannelLookupResult =
+  | {
+      status: "success";
+      channel: AdaptedChannel;
+      /** Raw backend channel record (for fields the adapter doesn't map). */
+      raw: Record<string, unknown>;
+    }
+  /** The backend explicitly confirmed there is no such channel. */
+  | { status: "not_found"; message: string }
+  /** This backend exposes no channel route at all. */
+  | { status: "route_missing" }
+  /** Network / server / auth failure — NOT a confirmation of absence. */
+  | { status: "error"; message: string; httpStatus?: number };
+
+const NETWORK_ERROR =
+  "Could not reach the video service. The server may be offline or blocking requests from this site.";
+
+function messageOf(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const p = payload as Record<string, unknown>;
+  return String(p.message || p.error || "");
 }
 
-/**
- * Explicit load states. "notfound" is ONLY produced after a completed request
- * in which the backend confirmed the channel does not exist — a pending
- * request is always "loading", never "notfound".
- */
-export type ChannelStatus =
-  | "loading"
-  | "success"
-  | "notfound"
-  | "routemissing"
-  | "error";
-
-export type ChannelResult =
-  | { status: "success"; channel: ChannelData }
-  | { status: "notfound" }
-  | { status: "routemissing" }
-  | { status: "error"; message: string };
-
-/** Human message for a thrown request error (network vs. processing). */
-export function channelErrorMessage(err: unknown): string {
+function describeFailure(err: unknown): string {
   const isNetwork =
     err instanceof TypeError ||
     /fetch|network|cors/i.test(String((err as Error)?.message || ""));
-  return isNetwork
-    ? "Could not reach the video service. The server may be offline or blocking requests from this site."
-    : "Failed to load channel data.";
+  return isNetwork ? NETWORK_ERROR : "Failed to load channel data.";
 }
 
-/** Map a raw channel payload into the shape both pages consume. */
-export function toChannelData(
-  payload: unknown,
-  currentUserId?: string | null
-): ChannelData | null {
-  const adapted = adaptChannel(payload, {
-    currentUserId: currentUserId ?? null,
-  });
-  if (!adapted) return null;
-  const d = unwrapEnvelope(payload);
-  const raw = ((d && (d.channel ?? d)) || {}) as Record<string, any>;
-  const links = Array.isArray(raw.links)
-    ? raw.links.map((l: Record<string, any>) => ({
-        label: String(l?.label ?? ""),
-        url: String(l?.url ?? ""),
-      }))
-    : [];
-  return {
-    ...adapted,
-    contactEmail: String(raw.contactEmail ?? raw.email ?? ""),
-    links,
-  };
-}
-
-async function readJson(res: Response): Promise<unknown> {
+async function lookup(
+  url: string,
+  opts: { currentUserId?: string | null; authenticated?: boolean; signal?: AbortSignal }
+): Promise<ChannelLookupResult> {
+  let res: Response;
   try {
-    return await res.json();
+    res = await fetch(url, {
+      cache: "no-store",
+      credentials: opts.authenticated ? "include" : "same-origin",
+      signal: opts.signal,
+    });
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") throw err;
+    return { status: "error", message: describeFailure(err) };
+  }
+
+  let payload: unknown = null;
+  try {
+    payload = await res.json();
   } catch {
-    return null;
+    payload = null;
   }
-}
-
-/**
- * Public channel lookup by handle (or legacy id). Distinguishes
- * "backend has no channel route" from "no such channel" from "server error".
- */
-export async function fetchChannelByIdentifier(
-  handleOrId: string,
-  currentUserId?: string | null
-): Promise<ChannelResult> {
-  let res: Response;
-  try {
-    res = await fetch(channelApiUrl(handleOrId), {
-      cache: "no-store",
-      credentials: "include",
-    });
-  } catch (err) {
-    return { status: "error", message: channelErrorMessage(err) };
-  }
-
-  const payload = await readJson(res);
-  if (isRouteNotFound(payload)) return { status: "routemissing" };
 
   if (!res.ok) {
-    // Only a completed 404 is proof that the channel does not exist.
-    if (res.status === 404) return { status: "notfound" };
-    const msg =
-      payload && typeof payload === "object"
-        ? String(
-            (payload as Record<string, unknown>).message ||
-              (payload as Record<string, unknown>).error ||
-              ""
-          )
-        : "";
+    if (isRouteNotFound(payload)) return { status: "route_missing" };
+    const msg = messageOf(payload);
+    if (res.status === 404) {
+      return { status: "not_found", message: msg || "Channel not found" };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return {
+        status: "error",
+        httpStatus: res.status,
+        message: "Your session could not be verified. Please sign in again.",
+      };
+    }
     return {
       status: "error",
-      message: msg || `The server could not load this channel (${res.status}).`,
+      httpStatus: res.status,
+      message: msg || `The server returned an error (${res.status}).`,
     };
   }
 
-  const channel = toChannelData(payload, currentUserId);
-  return channel ? { status: "success", channel } : { status: "notfound" };
+  const channel = adaptChannel(payload, { currentUserId: opts.currentUserId ?? null });
+  if (!channel) {
+    // 200 with no channel record: the backend answered and there is none.
+    return { status: "not_found", message: "Channel not found" };
+  }
+  const envelope = unwrapEnvelope(payload);
+  const raw = ((envelope.channel ?? envelope) || {}) as Record<string, unknown>;
+  return { status: "success", channel, raw };
 }
 
-/** Authenticated lookup of the signed-in owner's channel. */
-export async function fetchMyChannel(
-  currentUserId?: string | null
-): Promise<ChannelResult> {
-  let res: Response;
-  try {
-    res = await fetch(channelMeApiUrl(), {
-      cache: "no-store",
-      credentials: "include",
-    });
-  } catch (err) {
-    return { status: "error", message: channelErrorMessage(err) };
-  }
-
-  const payload = await readJson(res);
-  if (isRouteNotFound(payload)) return { status: "routemissing" };
-
-  if (!res.ok) {
-    if (res.status === 404) return { status: "notfound" };
-    const msg =
-      payload && typeof payload === "object"
-        ? String(
-            (payload as Record<string, unknown>).message ||
-              (payload as Record<string, unknown>).error ||
-              ""
-          )
-        : "";
-    return {
-      status: "error",
-      message: msg || `The server could not load your channel (${res.status}).`,
-    };
-  }
-
-  const channel = toChannelData(payload, currentUserId);
-  return channel ? { status: "success", channel } : { status: "notfound" };
+/** Public channel by HANDLE (the backend's only public channel key). */
+export function fetchChannelByHandle(
+  handle: string,
+  opts: { currentUserId?: string | null; signal?: AbortSignal } = {}
+): Promise<ChannelLookupResult> {
+  return lookup(channelApiUrl(handle), { ...opts, authenticated: true });
 }
 
-/**
- * Resolve the SIGNED-IN USER's real channel. Same flow the Channel page uses:
- * authenticated GET /channel/me first, then the public handle lookup.
- */
-export async function fetchCurrentUsersChannel(
-  user: { id?: string | number | null; username?: string | null } | null,
-  currentUserId?: string | null
-): Promise<ChannelResult> {
-  const mine = await fetchMyChannel(currentUserId);
-  if (mine.status === "success" || mine.status === "error") return mine;
-
-  const handle = String(user?.username ?? "").trim();
-  if (handle) {
-    const byHandle = await fetchChannelByIdentifier(handle, currentUserId);
-    if (byHandle.status !== "notfound") return byHandle;
-  }
-
-  return mine;
+/** The signed-in user's OWN channel via the authenticated /channel/me. */
+export function fetchMyChannel(
+  opts: { currentUserId?: string | null; signal?: AbortSignal } = {}
+): Promise<ChannelLookupResult> {
+  return lookup(channelMeApiUrl(), { ...opts, authenticated: true });
 }

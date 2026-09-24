@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import "./globals.css";
+import "../index.css";
 import { AppProvider } from "@/context/AppContext";
 import { AppShell } from "@/components/Navigation";
 import { GlobalModals } from "@/components/Modals";
@@ -8,6 +8,7 @@ import { GlobalModals } from "@/components/Modals";
 /**
  * Never prerender/cache the HTML shell. The authentication UI must always be
  * the freshly deployed bundle, and every page reads session-derived data.
+ * This also guarantees direct URL access / refresh of every route on Vercel.
  */
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -20,14 +21,8 @@ export const metadata: Metadata = {
     capable: true,
     title: "BharatTube",
     statusBarStyle: "black-translucent",
-    startupImage: ["/icon.png"],
   },
   formatDetection: { telephone: false },
-  icons: {
-    icon: [{ url: "/icon.png", type: "image/png" }],
-    shortcut: ["/icon.png"],
-    apple: [{ url: "/icon.png" }],
-  },
 };
 
 /**

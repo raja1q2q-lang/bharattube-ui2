@@ -1,4 +1,18 @@
-import path from "path";
+/**
+ * Browser-safe stand-ins for the Node `path`/`process` helpers used by the
+ * server-only dir functions below. In the browser only `fileExtension()`
+ * (extname) is ever called; the dir helpers are dead code on this platform.
+ */
+const path = {
+  extname(name: string): string {
+    const i = name.lastIndexOf(".");
+    return i <= 0 ? "" : name.slice(i);
+  },
+  resolve(...parts: string[]): string {
+    return parts.join("/").replace(/\/{2,}/g, "/");
+  },
+};
+const nodeProcess = { cwd: () => "" };
 
 /**
  * Single source of truth for upload limits and accepted formats.
@@ -105,11 +119,11 @@ export function extensionFor(
 }
 
 export function uploadsDir(): string {
-  return path.resolve(process.cwd(), ".data", "uploads");
+  return path.resolve(nodeProcess.cwd(), ".data", "uploads");
 }
 
 export function tempDir(): string {
-  return path.resolve(process.cwd(), ".data", "tmp");
+  return path.resolve(nodeProcess.cwd(), ".data", "tmp");
 }
 
 export function formatBytes(bytes: number): string {

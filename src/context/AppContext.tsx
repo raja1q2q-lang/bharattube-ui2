@@ -245,7 +245,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         /* External backend (Express /api/v1): read session via /auth/me. */
         if (USE_EXTERNAL_BACKEND) {
           if (typeof window !== "undefined") {
+            // Hash-router deployment: OAuth query params arrive inside the
+            // hash fragment (#/auth/callback?token=…); also accept a plain
+            // search string for direct URL visits.
             const urlParams = new URLSearchParams(window.location.search);
+            const hashQueryIndex = window.location.hash.indexOf("?");
+            if (hashQueryIndex >= 0) {
+              new URLSearchParams(window.location.hash.slice(hashQueryIndex + 1)).forEach(
+                (value, key) => urlParams.set(key, value)
+              );
+            }
+            const writeCleanUrl = () => {
+              const cleanQuery = urlParams.toString();
+              const hashPath = window.location.hash.split("?")[0];
+              const cleanHash = hashPath + (cleanQuery ? `?${cleanQuery}` : "");
+              window.history.replaceState(null, "", window.location.pathname + cleanHash);
+            };
             const qToken =
               urlParams.get("token") ||
               urlParams.get("accessToken") ||
@@ -259,12 +274,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               urlParams.delete("access_token");
               urlParams.delete("jwt");
               urlParams.delete("authToken");
-              const cleanSearch = urlParams.toString();
-              const cleanUrl =
-                window.location.pathname +
-                (cleanSearch ? `?${cleanSearch}` : "") +
-                window.location.hash;
-              window.history.replaceState(null, "", cleanUrl);
+              writeCleanUrl();
             }
             const qError =
               urlParams.get("error") ||
@@ -275,12 +285,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               urlParams.delete("error");
               urlParams.delete("google_error");
               urlParams.delete("errorCode");
-              const cleanSearch = urlParams.toString();
-              const cleanUrl =
-                window.location.pathname +
-                (cleanSearch ? `?${cleanSearch}` : "") +
-                window.location.hash;
-              window.history.replaceState(null, "", cleanUrl);
+              writeCleanUrl();
             }
           }
 

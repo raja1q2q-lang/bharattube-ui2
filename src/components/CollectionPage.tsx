@@ -11,7 +11,7 @@ import {
   ErrorState,
 } from "./VideoComponents";
 import { useApp } from "@/context/AppContext";
-import { apiUrl, unwrapList } from "@/lib/api-config";
+import { apiUrl } from "@/lib/api-config";
 import { adaptVideos } from "@/lib/backend-adapter";
 
 type FeedKey = "history" | "liked" | "watch_later" | "my_videos";

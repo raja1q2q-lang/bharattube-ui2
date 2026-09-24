@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import Link from "@/shims/next-link";
+import { usePathname, useRouter } from "@/shims/next-navigation";
 import {
   Menu,
   Search,

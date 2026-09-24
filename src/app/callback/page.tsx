@@ -1,7 +1,6 @@
-import AuthCallbackPage from "@/app/auth/callback/page";
+import AuthCallbackPage from "@/views/GoogleCallback";
 
-export const dynamic = "force-dynamic";
-
-export default function CallbackPage() {
+/** Server Component route entry — renders the interactive BharatTube view. */
+export default function Page() {
   return <AuthCallbackPage />;
 }

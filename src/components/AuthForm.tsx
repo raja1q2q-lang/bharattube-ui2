@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { googleLoginUrl } from "@/lib/api-config";
 
