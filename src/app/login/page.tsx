@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useEffect, Suspense } from "react";
-import Link from "@/shims/next-link";
-import { useRouter, useSearchParams } from "@/shims/next-navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AuthForm } from "@/components/AuthForm";
 import { useApp } from "@/context/AppContext";
 import { describeOAuthError } from "@/lib/api-config";

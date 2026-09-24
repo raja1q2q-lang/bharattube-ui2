@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, Suspense } from "react";
-import Link from "@/shims/next-link";
-import { useRouter, useSearchParams } from "@/shims/next-navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Lock, AlertCircle, Check, KeyRound } from "lucide-react";
 import { apiFetch } from "@/lib/client";
 import { useApp } from "@/context/AppContext";

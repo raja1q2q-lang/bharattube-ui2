@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, use } from "react";
-import Link from "@/shims/next-link";
+import Link from "next/link";
 import {
   Share2,
   Clock,

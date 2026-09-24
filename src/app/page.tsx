@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import Link from "@/shims/next-link";
+import Link from "next/link";
 import { Flame, History, PlusCircle } from "lucide-react";
 import { VIDEO_CATEGORIES, formatDuration } from "@/lib/format";
 import {

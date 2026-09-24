@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, use } from "react";
-import { useRouter, hashLocation } from "@/shims/next-navigation";
-import Link from "@/shims/next-link";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   CheckCircle2,
   ListVideo,
@@ -26,15 +26,8 @@ import {
 } from "@/components/VideoComponents";
 import { formatCount, formatDuration } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
-import { adaptVideos } from "@/lib/backend-adapter";
-import { apiUrl } from "@/lib/api-config";
-import {
-  channelErrorMessage,
-  fetchChannelByIdentifier,
-  fetchCurrentUsersChannel,
-  type ChannelData,
-  type ChannelStatus,
-} from "@/lib/channel-service";
+import { adaptChannel, adaptVideos } from "@/lib/backend-adapter";
+import { apiUrl, channelApiUrl, channelMeApiUrl, isRouteNotFound } from "@/lib/api-config";
 
 interface ChannelProfile {
   id: string;
@@ -69,27 +62,20 @@ export default function ChannelPage({
 }) {
   const { id } = use(params);
   const router = useRouter();
-  const { user, authStatus, openUploadModal, feedRefreshTrigger, refreshUser } = useApp();
+  const { user, openUploadModal, feedRefreshTrigger, refreshUser } = useApp();
 
-  const [channel, setChannel] = useState<ChannelData | null>(null);
+  const [channel, setChannel] = useState<ChannelProfile | null>(null);
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [activeTab, setActiveTab] = useState<
     "Home" | "Videos" | "Shorts" | "Live" | "Playlists" | "About"
   >("Home");
-  /**
-   * Explicit load state — the page NEVER infers "not found" from a null
-   * channel. "notfound" is only set once the request has completed and the
-   * backend confirmed that no channel exists.
-   *   loading      → session / route id / channel request still pending
-   *   success      → channel exists and is rendered
-   *   ownmissing   → backend confirmed the signed-in account has no channel
-   *   notfound     → backend confirmed this channel does not exist
-   *   routemissing → this backend exposes no channel route at all
-   *   error        → API / network / server error
-   */
-  const [status, setStatus] = useState<ChannelStatus | "ownmissing">("loading");
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  /** True when this backend exposes no channel route at all. */
+  const [channelRouteMissing, setChannelRouteMissing] = useState(false);
+  /** True when the authenticated owner has no real channel record yet. */
+  const [ownChannelMissing, setOwnChannelMissing] = useState(false);
   const [creatingChannel, setCreatingChannel] = useState(false);
   const [createChannelError, setCreateChannelError] = useState("");
 
@@ -107,104 +93,161 @@ export default function ChannelPage({
    * Nothing is mocked: every value below is mapped from the API response.
    */
   const loadChannel = useCallback(async () => {
-    // The owner-id → handle resolution below needs the signed-in user, so a
-    // still-pending session keeps the page in the loading state. It must never
-    // resolve to "not found" first.
-    if (authStatus === "loading") {
-      setStatus("loading");
-      return;
-    }
-
-    setStatus("loading");
+    setLoading(true);
     setError("");
-    setChannel(null);
-    setVideos([]);
-    setPlaylists([]);
-
-    const currentUserId = user?.id != null ? String(user.id) : null;
+    setChannelRouteMissing(false);
+    setOwnChannelMissing(false);
 
     try {
-      let result = await fetchChannelByIdentifier(id, currentUserId);
+      const res = await fetch(channelApiUrl(id), { cache: "no-store" });
+      let payload: unknown = null;
+      try {
+        payload = await res.json();
+      } catch {
+        payload = null;
+      }
 
-      // ROOT-CAUSE FIX: the backend resolves channels only by HANDLE, while
-      // "Your Channel" links carry the signed-in user's id. Resolve the real
-      // channel through the authenticated lookup and canonicalise the URL so a
-      // refresh keeps working. The page stays in the loading state for the
-      // whole hand-off — "Channel Not Found" is never rendered in between.
-      if (
-        result.status === "notfound" &&
-        currentUserId &&
-        String(id) === currentUserId
-      ) {
-        const mine = await fetchCurrentUsersChannel(
-          { id: user?.id, username: user?.username },
-          currentUserId
-        );
+      if (!res.ok) {
+        const msg =
+          payload && typeof payload === "object"
+            ? String(
+                (payload as Record<string, unknown>).message ||
+                  (payload as Record<string, unknown>).error ||
+                  ""
+              )
+            : "";
 
-        if (mine.status === "success") {
-          const handle = mine.channel.username;
-          const canonical = `/channel/${encodeURIComponent(handle)}${
-            hashLocation().search
-          }`;
-          if (handle && hashLocation().pathname + hashLocation().search !== canonical) {
-            // Canonical public URL → direct refresh loads this channel.
-            router.replace(canonical);
+        // ROOT-CAUSE FIX: the backend resolves channels only by HANDLE, while
+        // "Your Channel" links carry the signed-in user's id. When a resource
+        // miss hits exactly the current user's id, resolve the REAL handle
+        // through the authenticated GET /channel/me endpoint (no hardcoding),
+        // then navigate to the canonical handle URL so refresh keeps working.
+        const slugLooksLikeOwnerId =
+          user != null &&
+          String(id) !== "" &&
+          String(id) === String(user.id);
+
+        if (slugLooksLikeOwnerId && !/route '.*' not found/i.test(msg)) {
+          try {
+            const meRes = await fetch(channelMeApiUrl(), {
+              credentials: "include",
+              cache: "no-store",
+            });
+            if (meRes.ok) {
+              const meData = await meRes.json();
+              const mine = adaptChannel(meData, {
+                currentUserId: user?.id != null ? String(user.id) : null,
+              });
+              const handle = mine?.username?.trim();
+              if (handle) {
+                // Preserve the original query (?tab=...) so no link intent is lost.
+                const canonical = `/channel/${encodeURIComponent(handle)}${
+                  window.location.search
+                }`;
+                if (window.location.pathname !== canonical) {
+                  // Canonical public URL → direct refresh loads this channel.
+                  router.replace(canonical);
+                } else {
+                  setChannel(null);
+                  setError("");
+                  setLoading(false);
+                }
+                return;
+              }
+            }
+
+            // The backend answered (200-without-channel, 404, or empty) — the
+            // user's account simply has no channel record. Report THAT truth,
+            // never "Channel Not Found" (which would be a lie) and never a
+            // fabricated channel.
+            setOwnChannelMissing(true);
+            setChannel(null);
+            setVideos([]);
+            setPlaylists([]);
+            return;
+          } catch (err) {
+            // Distinguish a real reachability failure from a channel miss so
+            // the error shown is truthful during development too.
+            const isNetwork =
+              err instanceof TypeError ||
+              /fetch|network|cors/i.test(String((err as Error)?.message || ""));
+            setError(
+              isNetwork
+                ? "Could not reach the video service. The server may be offline or blocking requests from this site."
+                : "Failed to load channel data."
+            );
+            setChannel(null);
+            setVideos([]);
+            setPlaylists([]);
             return;
           }
-          // Already on the canonical URL — render the channel we just resolved.
-          result = mine;
-        } else if (mine.status === "error") {
-          setError(mine.message);
-          setStatus("error");
-          return;
-        } else {
-          // The backend answered — this account genuinely has no channel
-          // record. Report THAT truth, never "Channel Not Found" and never a
-          // fabricated channel.
-          setStatus(mine.status === "routemissing" ? "routemissing" : "ownmissing");
-          return;
         }
-      }
 
-      if (result.status === "routemissing") {
-        setStatus("routemissing");
-        return;
-      }
-      if (result.status === "error") {
-        setError(result.message);
-        setStatus("error");
-        return;
-      }
-      if (result.status === "notfound") {
-        // Completed request, backend confirmed this channel does not exist.
-        setStatus("notfound");
+        // Distinguish "this backend has no channel route" from "not this channel".
+        if (isRouteNotFound(payload)) {
+          setChannelRouteMissing(true);
+        } else {
+          setError(msg || "Channel not found");
+        }
+        setChannel(null);
+        setVideos([]);
+        setPlaylists([]);
         return;
       }
 
-      setChannel(result.channel);
-      setStatus("success");
+      const adapted = adaptChannel(payload, { currentUserId: user?.id != null ? String(user.id) : null });
+      if (!adapted) {
+        setError("Channel not found");
+        return;
+      }
+
+      setChannel({
+        id: adapted.id,
+        ownerUserId: adapted.ownerUserId,
+        ownerUsername: adapted.ownerUsername,
+        username: adapted.username,
+        displayName: adapted.displayName,
+        avatarUrl: adapted.avatarUrl,
+        bannerUrl: adapted.bannerUrl,
+        bio: adapted.bio,
+        isVerified: adapted.isVerified,
+        subscriberCount: adapted.subscriberCount,
+        isSubscribed: adapted.isSubscribed,
+        totalVideos: adapted.totalVideos,
+        totalViews: adapted.totalViews,
+        createdAt: adapted.createdAt,
+      });
 
       // Channel videos — real endpoint, keyed by the channel OWNER id.
-      const ownerUserId = result.channel.ownerUserId;
-      if (ownerUserId) {
-        try {
-          const vres = await fetch(
-            apiUrl(`/videos?userId=${encodeURIComponent(ownerUserId)}`),
-            { cache: "no-store" }
-          );
-          if (vres.ok) {
-            const vpayload = await vres.json();
-            setVideos(adaptVideos(vpayload) as unknown as VideoItem[]);
-          }
-        } catch {
-          // The channel itself loaded — a failed feed request is not fatal.
+      if (adapted.ownerUserId) {
+        const vres = await fetch(
+          apiUrl(`/videos?userId=${encodeURIComponent(adapted.ownerUserId)}`),
+          { cache: "no-store" }
+        );
+        if (vres.ok) {
+          const vpayload = await vres.json();
+          setVideos(adaptVideos(vpayload) as unknown as VideoItem[]);
+        } else {
+          setVideos([]);
         }
+      } else {
+        setVideos([]);
       }
+
+      setPlaylists([]);
     } catch (err) {
-      setError(channelErrorMessage(err));
-      setStatus("error");
+      const isNetwork =
+        err instanceof TypeError ||
+        /fetch|network|cors/i.test(String((err as Error)?.message || ""));
+      setError(
+        isNetwork
+          ? "Could not reach the video service. The server may be offline or blocking requests from this site."
+          : "Failed to load channel data."
+      );
+    } finally {
+      setLoading(false);
     }
-  }, [id, user?.id, user?.username, authStatus, router]);
+  }, [id, user?.id, router]);
 
   useEffect(() => {
     loadChannel();
@@ -254,8 +297,7 @@ export default function ChannelPage({
     }
   };
 
-  // 1. INITIAL / LOADING — session, route id or channel request still pending.
-  if (status === "loading") {
+  if (loading) {
     return (
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
         <div className="w-full h-44 sm:h-56 rounded-2xl bg-zinc-200 dark:bg-zinc-800 animate-pulse mb-6" />
@@ -265,11 +307,11 @@ export default function ChannelPage({
   }
 
   /**
-   * This deployment's backend exposes `GET /channel/:handle` (singular, keyed
-   * by the channel HANDLE) and has no channel route at all if this flag is set.
-   * We never fabricate an identity — the notice below is exact.
-   */
-  if (status === "routemissing" && !channel) {
+    * This deployment's backend exposes `GET /channel/:handle` (singular, keyed
+    * by the channel HANDLE) and has no channel route at all if this flag is set.
+    * We never fabricate an identity — the notice below is exact.
+    */
+  if (channelRouteMissing && !channel) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
         <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 mb-6">
@@ -283,7 +325,9 @@ export default function ChannelPage({
           </p>
         </div>
 
-        {videos.length === 0 ? (
+        {loading ? (
+          <SkeletonGrid count={4} />
+        ) : videos.length === 0 ? (
           <EmptyState
             title="No videos from this user yet"
             description="The API returned no uploads for this user id."
@@ -299,8 +343,7 @@ export default function ChannelPage({
     );
   }
 
-  // Backend confirmed the signed-in account simply has no channel record.
-  if (status === "ownmissing" && !channel) {
+  if (ownChannelMissing && !channel) {
     const isCurrentUserRoute = Boolean(user && String(user.id) === String(id));
     return (
       <div className="max-w-3xl mx-auto px-6 py-12">
@@ -323,36 +366,13 @@ export default function ChannelPage({
     );
   }
 
-  // 3. NOT FOUND — only ever reached after the request completed and the
-  //    backend explicitly confirmed that this channel does not exist.
-  if (status === "notfound" && !channel) {
+  if (error || !channel) {
     return (
       <div className="max-w-3xl mx-auto px-6 py-12">
-        <EmptyState
-          title="Channel Not Found"
-          description="This channel does not exist on the server. The request completed and no channel matched this address."
-          actionLabel="Go back"
-          onAction={() => router.back()}
+        <ErrorState
+          message={error || "Channel not found"}
+          onRetry={loadChannel}
         />
-      </div>
-    );
-  }
-
-  // 4. ERROR — API / network / server error, with a retry.
-  if (status === "error") {
-    return (
-      <div className="max-w-3xl mx-auto px-6 py-12">
-        <ErrorState message={error || "Failed to load channel data."} onRetry={loadChannel} />
-      </div>
-    );
-  }
-
-  // Defensive: never render "not found" from a missing object.
-  if (!channel) {
-    return (
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
-        <div className="w-full h-44 sm:h-56 rounded-2xl bg-zinc-200 dark:bg-zinc-800 animate-pulse mb-6" />
-        <SkeletonGrid count={4} />
       </div>
     );
   }

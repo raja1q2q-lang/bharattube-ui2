@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useEffect, useState, Suspense } from "react";
-import Link from "@/shims/next-link";
-import { useSearchParams } from "@/shims/next-navigation";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Loader2, CheckCircle2, AlertCircle, MailCheck } from "lucide-react";
 import { apiFetch } from "@/lib/client";
 import { useApp } from "@/context/AppContext";

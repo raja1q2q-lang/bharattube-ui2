@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import Link from "@/shims/next-link";
+import Link from "next/link";
 import { Loader2, Mail, CheckCircle2, AlertCircle, KeyRound } from "lucide-react";
 import { apiFetch } from "@/lib/client";
 import { BrandLogo } from "@/components/BrandLogo";

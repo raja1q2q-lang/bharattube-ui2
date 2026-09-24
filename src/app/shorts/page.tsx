@@ -7,8 +7,8 @@ import React, {
   useRef,
   Suspense,
 } from "react";
-import { useSearchParams, useRouter, appOrigin } from "@/shims/next-navigation";
-import Link from "@/shims/next-link";
+import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Flame,
   ThumbsUp,
@@ -181,7 +181,7 @@ function ShortSlide({
   };
 
   const handleShare = async () => {
-    const url = `${appOrigin()}/shorts?id=${short.id}`;
+    const url = `${window.location.origin}/shorts?id=${short.id}`;
     // Native share sheet on mobile, clipboard fallback everywhere else.
     if (typeof navigator !== "undefined" && navigator.share) {
       try {

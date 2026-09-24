@@ -1,8 +1,8 @@
 "use client";
 
 import React, { Suspense, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "@/shims/next-navigation";
-import Link from "@/shims/next-link";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Loader2, AlertCircle } from "lucide-react";
 
 /**
