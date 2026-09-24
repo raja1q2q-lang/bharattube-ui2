@@ -74,13 +74,10 @@ export default function ChannelPage({
   const [error, setError] = useState("");
   /** True when this backend exposes no channel route at all. */
   const [channelRouteMissing, setChannelRouteMissing] = useState(false);
-  /**
-   * True when the backend was reached and reported that the OWN channel record
-   * does not exist (verified: this DB currently contains no channel for the
-   * signed-in account). Distinct from a genuine "channel not found" for a
-   * public handle, and from a network/CORS failure.
-   */
+  /** True when the authenticated owner has no real channel record yet. */
   const [ownChannelMissing, setOwnChannelMissing] = useState(false);
+  const [creatingChannel, setCreatingChannel] = useState(false);
+  const [createChannelError, setCreateChannelError] = useState("");
 
   /**
    * Loads REAL channel data from the deployed backend.
@@ -256,6 +253,50 @@ export default function ChannelPage({
     loadChannel();
   }, [loadChannel, feedRefreshTrigger]);
 
+  /**
+   * Uses the backend's EXISTING authenticated POST /channel route. The server
+   * derives ownership from the session; we only send the real signed-in
+   * profile values as initial channel defaults. No channel is fabricated in
+   * the browser and duplicate creation remains a backend concern.
+   */
+  const createMyChannel = async () => {
+    if (!user || String(user.id) !== String(id) || creatingChannel) return;
+    setCreatingChannel(true);
+    setCreateChannelError("");
+    try {
+      const res = await fetch(apiUrl("/channel"), {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channelName: user.displayName,
+          handle: user.username,
+          description: user.bio || "",
+          logo: user.avatarUrl || "",
+          banner: user.bannerUrl || "",
+        }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCreateChannelError(
+          payload?.message ||
+            payload?.error ||
+            "The server could not create your channel. Please try again."
+        );
+        return;
+      }
+      // Reload through GET /channel/me → canonical handle redirect. The
+      // displayed channel will only appear after the server confirms it.
+      await loadChannel();
+    } catch {
+      setCreateChannelError(
+        "Could not reach the server. Please check your connection and try again."
+      );
+    } finally {
+      setCreatingChannel(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
@@ -303,13 +344,23 @@ export default function ChannelPage({
   }
 
   if (ownChannelMissing && !channel) {
+    const isCurrentUserRoute = Boolean(user && String(user.id) === String(id));
     return (
       <div className="max-w-3xl mx-auto px-6 py-12">
+        {createChannelError && (
+          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-500">
+            {createChannelError}
+          </div>
+        )}
         <EmptyState
           title="You don't have a channel yet"
-          description="No channel record exists for your account on the server. A channel appears here as soon as the backend creates one (it is normally created automatically on sign-up). Nothing was faked — this reflects the actual database state."
-          actionLabel="Go back"
-          onAction={() => router.push("/you")}
+          description={
+            isCurrentUserRoute
+              ? "No channel record exists for your account. Create your real channel using your authenticated profile, then it will be loaded from the server."
+              : "No channel record exists for this user on the server."
+          }
+          actionLabel={isCurrentUserRoute ? (creatingChannel ? "Creating channel..." : "Create your channel") : "Go back"}
+          onAction={isCurrentUserRoute ? createMyChannel : () => router.push("/you")}
         />
       </div>
     );
