@@ -199,7 +199,15 @@ export function adaptVideo(raw: unknown): AdaptedVideo | null {
 
   const creator = {
     id: str(ownerIsObject ? owner._id : owner, v.ownerId, v.userId),
-    username: str(ownerIsObject ? owner.username : "", v.channelHandle, ownerIsObject ? owner.handle : ""),
+    // Channel HANDLE first: the backend resolves /channel/:handle only by
+    // handle, so a creator link must prefer it over the account username.
+    username: str(
+      v.channelHandle,
+      (v.channel as Record<string, unknown> | undefined)?.handle,
+      ownerIsObject ? owner.handle : "",
+      v.handle,
+      ownerIsObject ? owner.username : ""
+    ),
     displayName: str(
       ownerIsObject ? owner.name : "",
       ownerIsObject ? owner.username : "",

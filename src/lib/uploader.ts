@@ -113,19 +113,24 @@ function uploadFileExternal(
     installAuthFetchInterceptor();
     const token = getSessionToken();
 
-    // Detect which upload route the backend exposes (skip 404s) by attempting
-    // each candidate; the first non-404 response wins.
-    let lastError = "Upload failed. Please try again.";
-    for (const endpoint of videoUploadCandidates) {
-      if (cancelled) throw new UploadCancelledError();
+    // Detect which upload route AND which multipart field name the backend
+    // exposes. Sending several file fields at once breaks backends that use a
+    // strict multer `.single("video")` parser ("Unexpected field" → 400), so we
+    // send exactly ONE file field and fall through candidates on failure:
+    //   404 -> next endpoint, 400/422 -> next field name, 401/403 -> auth error.
+    const FIELD_NAMES = ["video", "file", "videoFile"];
+    let fieldError = "";
 
-      const form = new FormData();
-      // Common field names for the binary; backends read whichever they expect.
-      form.append("video", file);
-      form.append("file", file);
-      for (const [k, v] of Object.entries(opts.extraFields || {})) {
-        if (v !== undefined && v !== null) form.append(k, String(v));
-      }
+    let lastError = "Upload failed. Please try again.";
+    outer: for (const endpoint of videoUploadCandidates) {
+      for (const fieldName of FIELD_NAMES) {
+        if (cancelled) throw new UploadCancelledError();
+
+        const form = new FormData();
+        form.append(fieldName, file);
+        for (const [k, v] of Object.entries(opts.extraFields || {})) {
+          if (v !== undefined && v !== null) form.append(k, String(v));
+        }
 
       const result = await new Promise<
         { ok: true; data: UploadedAsset } | { ok: false; status: number; message: string }
@@ -190,9 +195,15 @@ function uploadFileExternal(
       });
 
       if (result.ok) return result.data;
+      if (result.message === "aborted") throw new UploadCancelledError();
+      if (result.status === 0) {
+        throw new Error(
+          "We couldn't reach the server. Please check your connection and try again."
+        );
+      }
       if (result.status === 404) {
         lastError = "Upload service was not found on the server.";
-        continue; // try the next candidate endpoint
+        continue outer; // this endpoint does not exist
       }
       if (result.status === 401 || result.status === 403) {
         throw new Error(
@@ -202,16 +213,18 @@ function uploadFileExternal(
       if (result.status === 413) {
         throw new Error("This file is too large for the server.");
       }
-      if (result.message === "aborted") throw new UploadCancelledError();
-      if (result.status === 0) {
-        throw new Error(
-          "We couldn't reach the server. Please check your connection and try again."
-        );
+      if (result.status === 400 || result.status === 422) {
+        // Endpoint exists but rejected this multipart field name (strict
+        // multer-style parsers). Try the next field name for this endpoint.
+        fieldError = result.message || lastError;
+        continue;
       }
+      // Endpoint exists but the request is otherwise invalid — no retry helps.
       throw new Error(result.message || lastError);
+      }
     }
-
-    throw new Error(lastError);
+    // Prefer the field-specific rejection if an endpoint rejected the field.
+    throw new Error(fieldError || lastError);
   })();
 
   return { promise, cancel } as UploadHandle;

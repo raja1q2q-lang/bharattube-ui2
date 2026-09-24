@@ -221,6 +221,18 @@ export function channelApiUrl(handleOrId: string): string {
  * POST/DELETE/PUT /channel/:handle/subscribe → "Route not found"). The button
  * calls it and reports the gap honestly rather than faking success.
  */
+/**
+ * Authenticated "my channel" lookup — VERIFIED to exist on the backend
+ * (GET /channel/me returns 401 "No Token Provided" without auth).
+ *
+ * Needed because the backend resolves channels only by HANDLE, while "Your
+ * Channel" links are built from the signed-in user's id. The channel page
+ * resolves that id through this endpoint to obtain the real handle.
+ */
+export function channelMeApiUrl(): string {
+  return USE_EXTERNAL_BACKEND ? `${EXTERNAL_API_BASE}/channel/me` : "/api/channels/me";
+}
+
 export function subscribeApiUrl(handleOrId: string | number): string {
   const key = encodeURIComponent(String(handleOrId ?? "").trim());
   return `${EXTERNAL_API_BASE}/channel/${key}/subscribe`;

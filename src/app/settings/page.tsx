@@ -26,9 +26,29 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { useApp, ThemeMode } from "@/context/AppContext";
+import { useApp, ThemeMode, Preferences } from "@/context/AppContext";
 import { apiFetch } from "@/lib/client";
 import { formatCount } from "@/lib/format";
+
+/**
+ * Display defaults for settings toggles — the same values the app schema
+ * documents. Used ONLY because this backend's /auth/me does not return a
+ * preferences object; when the backend supplies one, its real values win.
+ */
+const DEFAULT_PREFERENCES: Preferences = {
+  theme: "dark",
+  language: "en",
+  autoplay: true,
+  defaultPlaybackRate: 1,
+  captionsByDefault: false,
+  historyEnabled: true,
+  searchHistoryEnabled: true,
+  notifyUploads: true,
+  notifyComments: true,
+  notifyReplies: true,
+  notifyLikes: true,
+  notifySubscribers: true,
+};
 
 function Section({
   icon,
@@ -133,7 +153,14 @@ function SettingsContent() {
   const [deleteEmail, setDeleteEmail] = useState("");
   const [deleteError, setDeleteError] = useState("");
 
-  if (!user || !preferences) return null;
+  // ROOT-CAUSE FIX: `preferences` is null with the deployed backend (its
+  // /auth/me response carries no preferences object), and the old guard
+  // `if (!user || !preferences) return null` made this whole page render
+  // nothing — Settings "did not open". Render with the documented schema
+  // defaults instead; real backend values override them whenever present.
+  const prefs: Preferences = preferences ?? DEFAULT_PREFERENCES;
+
+  if (!user) return null;
 
   const setPref = async (key: string, value: boolean | string | number) => {
     setBusyKey(key);
@@ -348,14 +375,14 @@ function SettingsContent() {
         <Toggle
           label="Keep watch history"
           description="When off, watched videos and resume positions are not recorded."
-          checked={preferences.historyEnabled}
+          checked={prefs.historyEnabled}
           busy={busyKey === "historyEnabled"}
           onChange={(v) => setPref("historyEnabled", v)}
         />
         <Toggle
           label="Keep search history"
           description="When off, your searches are not stored and suggestions stop using them."
-          checked={preferences.searchHistoryEnabled}
+          checked={prefs.searchHistoryEnabled}
           busy={busyKey === "searchHistoryEnabled"}
           onChange={(v) => setPref("searchHistoryEnabled", v)}
         />
@@ -369,31 +396,31 @@ function SettingsContent() {
       >
         <Toggle
           label="New uploads from subscribed channels"
-          checked={preferences.notifyUploads}
+          checked={prefs.notifyUploads}
           busy={busyKey === "notifyUploads"}
           onChange={(v) => setPref("notifyUploads", v)}
         />
         <Toggle
           label="Comments on my videos"
-          checked={preferences.notifyComments}
+          checked={prefs.notifyComments}
           busy={busyKey === "notifyComments"}
           onChange={(v) => setPref("notifyComments", v)}
         />
         <Toggle
           label="Replies to my comments"
-          checked={preferences.notifyReplies}
+          checked={prefs.notifyReplies}
           busy={busyKey === "notifyReplies"}
           onChange={(v) => setPref("notifyReplies", v)}
         />
         <Toggle
           label="Likes on my videos"
-          checked={preferences.notifyLikes}
+          checked={prefs.notifyLikes}
           busy={busyKey === "notifyLikes"}
           onChange={(v) => setPref("notifyLikes", v)}
         />
         <Toggle
           label="New subscribers"
-          checked={preferences.notifySubscribers}
+          checked={prefs.notifySubscribers}
           busy={busyKey === "notifySubscribers"}
           onChange={(v) => setPref("notifySubscribers", v)}
         />
@@ -408,14 +435,14 @@ function SettingsContent() {
         <Toggle
           label="Autoplay videos"
           description="Start playback automatically when a watch page opens."
-          checked={preferences.autoplay}
+          checked={prefs.autoplay}
           busy={busyKey === "autoplay"}
           onChange={(v) => setPref("autoplay", v)}
         />
         <Toggle
           label="Always show captions"
           description="Turn the built-in caption overlay on by default."
-          checked={preferences.captionsByDefault}
+          checked={prefs.captionsByDefault}
           busy={busyKey === "captionsByDefault"}
           onChange={(v) => setPref("captionsByDefault", v)}
         />
@@ -430,7 +457,7 @@ function SettingsContent() {
                 onClick={() => setPref("defaultPlaybackRate", rate)}
                 disabled={busyKey === "defaultPlaybackRate"}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${
-                  preferences.defaultPlaybackRate === rate
+                  prefs.defaultPlaybackRate === rate
                     ? "bg-red-600 text-white"
                     : "bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
                 }`}
@@ -621,7 +648,7 @@ function SettingsContent() {
       {/* --------------------------- Language ---------------------------- */}
       <Section icon={<Globe className="w-4.5 h-4.5" />} title="Language">
         <select
-          value={preferences.language}
+          value={prefs.language}
           onChange={(e) => setPref("language", e.target.value)}
           className="px-3.5 py-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-700 text-sm max-w-xs w-full"
         >

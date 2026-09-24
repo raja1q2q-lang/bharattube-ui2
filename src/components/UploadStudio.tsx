@@ -225,13 +225,17 @@ export function UploadStudio({ onClose }: { onClose: () => void }) {
   );
 
   const acceptVideoFile = async (f: File, opts: { short: boolean; presetUrl?: string }) => {
-    if (!isAllowedVideo(f.name, f.type)) {
+    const looksLikeImage =
+      isAllowedImage(f.name, f.type) && !isAllowedVideo(f.name, f.type);
+    if (looksLikeImage) {
+      // A photo was picked (some Android pickers ignore the `accept` filter).
       showToast(
-        "Unsupported video format. Please select an MP4, WebM, MOV, M4V or other supported video file.",
+        "That's a photo, not a video. Please choose an MP4, WebM, MOV, M4V or other supported video file.",
         "error"
       );
       return;
     }
+    const knownVideoFormat = isAllowedVideo(f.name, f.type);
     if (f.size > MAX_VIDEO_BYTES) {
       showToast(
         `This video is ${formatBytes(f.size)}. The maximum size is ${MAX_VIDEO_MB} MB.`,
@@ -245,10 +249,30 @@ export function UploadStudio({ onClose }: { onClose: () => void }) {
     }
 
     const url = opts.presetUrl || URL.createObjectURL(f);
+
+    // Files whose container is not recognised by name/MIME (common on Android:
+    // empty type, no extension) are validated by REAL decoding before we upload
+    // anything — this accepts every genuinely playable video regardless of
+    // naming, and never uploads a non-video.
+    let preProbedDuration = 0;
+    if (!knownVideoFormat) {
+      const probed = await probeVideo(f, url);
+      if (!(probed.duration > 0)) {
+        if (!opts.presetUrl) URL.revokeObjectURL(url);
+        showToast(
+          "That file couldn't be opened as a video. Please choose an MP4, WebM, MOV, M4V or other supported video file.",
+          "error"
+        );
+        return;
+      }
+      preProbedDuration = probed.duration;
+    }
+
     setPreview(url);
     setFile(f);
     setIsShort(opts.short);
     setStage("details");
+    if (preProbedDuration) setDuration(preProbedDuration);
 
     if (!title) {
       const base = f.name.replace(/\.[^/.]+$/, "").replace(/[-_]+/g, " ").trim();
@@ -258,7 +282,7 @@ export function UploadStudio({ onClose }: { onClose: () => void }) {
     // Start uploading immediately while the user fills in details.
     beginUpload(f);
 
-    // Probe metadata + auto thumbnail in parallel.
+    // Probe metadata + auto thumbnail (skip duration re-probe if already known).
     const { duration: d, thumb } = await probeVideo(f, url);
     if (d) setDuration(d);
     if (thumb && !thumbnailUrl) {

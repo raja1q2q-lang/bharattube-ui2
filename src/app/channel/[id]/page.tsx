@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, use } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   CheckCircle2,
@@ -26,7 +27,7 @@ import {
 import { formatCount, formatDuration } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
 import { adaptChannel, adaptVideos } from "@/lib/backend-adapter";
-import { apiUrl, channelApiUrl, isRouteNotFound } from "@/lib/api-config";
+import { apiUrl, channelApiUrl, channelMeApiUrl, isRouteNotFound } from "@/lib/api-config";
 
 interface ChannelProfile {
   id: string;
@@ -60,6 +61,7 @@ export default function ChannelPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const { user, openUploadModal, feedRefreshTrigger, refreshUser } = useApp();
 
   const [channel, setChannel] = useState<ChannelProfile | null>(null);
@@ -101,18 +103,62 @@ export default function ChannelPage({
       }
 
       if (!res.ok) {
+        const msg =
+          payload && typeof payload === "object"
+            ? String(
+                (payload as Record<string, unknown>).message ||
+                  (payload as Record<string, unknown>).error ||
+                  ""
+              )
+            : "";
+
+        // ROOT-CAUSE FIX: the backend resolves channels only by HANDLE, while
+        // "Your Channel" links carry the signed-in user's id. When a resource
+        // miss hits exactly the current user's id, resolve the REAL handle
+        // through the authenticated GET /channel/me endpoint (no hardcoding),
+        // then navigate to the canonical handle URL so refresh keeps working.
+        const slugLooksLikeOwnerId =
+          user != null &&
+          String(id) !== "" &&
+          String(id) === String(user.id);
+
+        if (slugLooksLikeOwnerId && !/route '.*' not found/i.test(msg)) {
+          try {
+            const meRes = await fetch(channelMeApiUrl(), {
+              credentials: "include",
+              cache: "no-store",
+            });
+            if (meRes.ok) {
+              const meData = await meRes.json();
+              const mine = adaptChannel(meData, {
+                currentUserId: user?.id != null ? String(user.id) : null,
+              });
+              const handle = mine?.username?.trim();
+              if (handle) {
+                // Preserve the original query (?tab=...) so no link intent is lost.
+                const canonical = `/channel/${encodeURIComponent(handle)}${
+                  window.location.search
+                }`;
+                if (window.location.pathname !== canonical) {
+                  // Canonical public URL → direct refresh loads this channel.
+                  router.replace(canonical);
+                } else {
+                  setChannel(null);
+                  setError("");
+                  setLoading(false);
+                }
+                return;
+              }
+            }
+          } catch {
+            /* fall through to the honest error below */
+          }
+        }
+
         // Distinguish "this backend has no channel route" from "not this channel".
         if (isRouteNotFound(payload)) {
           setChannelRouteMissing(true);
         } else {
-          const msg =
-            payload && typeof payload === "object"
-              ? String(
-                  (payload as Record<string, unknown>).message ||
-                    (payload as Record<string, unknown>).error ||
-                    ""
-                )
-              : "";
           setError(msg || "Channel not found");
         }
         setChannel(null);
@@ -166,7 +212,7 @@ export default function ChannelPage({
     } finally {
       setLoading(false);
     }
-  }, [id, user?.id]);
+  }, [id, user?.id, router]);
 
   useEffect(() => {
     loadChannel();
