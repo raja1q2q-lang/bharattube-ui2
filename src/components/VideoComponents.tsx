@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import Link from "next/link";
+import Link from "@/shims/next-link";
+import { appOrigin } from "@/shims/next-navigation";
 import {
   CheckCircle2,
   MoreVertical,
@@ -420,7 +421,7 @@ export function VideoCard({
 
   const handleShare = async () => {
     setMenuOpen(false);
-    const url = `${window.location.origin}${watchHref}`;
+    const url = `${appOrigin()}${watchHref}`;
     // Native mobile share sheet when available, clipboard fallback otherwise.
     if (typeof navigator !== "undefined" && navigator.share) {
       try {

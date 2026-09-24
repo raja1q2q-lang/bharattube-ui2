@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
+import Link from "@/shims/next-link";
 import { ArrowLeft, ThumbsUp } from "lucide-react";
 import { CollectionPage } from "@/components/CollectionPage";
 import { ProtectedRoute } from "@/components/ProtectedRoute";

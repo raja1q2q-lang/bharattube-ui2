@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/shims/next-navigation";
 import { ArrowLeft, Search, X, History as HistoryIcon, Loader2 } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 import { apiUrl } from "@/lib/api-config";

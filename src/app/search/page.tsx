@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import { useSearchParams } from "@/shims/next-navigation";
+import Link from "@/shims/next-link";
 import { Search, SlidersHorizontal, ListVideo } from "lucide-react";
 import { MobileSearchBar } from "@/components/MobileSearchBar";
 import { ErrorState } from "@/components/VideoComponents";

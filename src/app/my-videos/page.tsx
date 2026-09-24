@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState, Suspense } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import Link from "@/shims/next-link";
+import { useRouter, useSearchParams } from "@/shims/next-navigation";
 import {
   ArrowLeft,
   Film,

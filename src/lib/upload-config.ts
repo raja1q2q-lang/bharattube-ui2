@@ -1,4 +1,15 @@
-import path from "path";
+/* Browser-safe replacements for the Node "path" helpers used below. */
+const path = {
+  extname(name: string): string {
+    const base = name.split(/[\\/]/).pop() || "";
+    const i = base.lastIndexOf(".");
+    return i > 0 ? base.slice(i) : "";
+  },
+  resolve(...parts: string[]): string {
+    return parts.filter(Boolean).join("/");
+  },
+};
+const process = { cwd: () => "." };
 
 /**
  * Single source of truth for upload limits and accepted formats.

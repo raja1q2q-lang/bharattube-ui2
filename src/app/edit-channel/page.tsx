@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useRouter } from "@/shims/next-navigation";
+import Link from "@/shims/next-link";
 import {
   Camera,
   ImageIcon,
@@ -15,14 +15,24 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
-import { UserAvatar } from "@/components/VideoComponents";
+import {
+  EmptyState,
+  ErrorState,
+  UserAvatar,
+} from "@/components/VideoComponents";
 import { useApp } from "@/context/AppContext";
 import { apiUrl } from "@/lib/api-config";
+import {
+  channelErrorMessage,
+  fetchCurrentUsersChannel,
+  type ChannelData,
+  type ChannelStatus,
+} from "@/lib/channel-service";
 
 const HANDLE_RE = /^[a-z0-9_]{3,30}$/;
 
 function EditChannelContent() {
-  const { user, channel, refreshUser, triggerFeedRefresh, showToast } = useApp();
+  const { user, refreshUser, triggerFeedRefresh, showToast } = useApp();
   const router = useRouter();
 
   const [channelName, setChannelName] = useState("");
@@ -38,25 +48,131 @@ function EditChannelContent() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
+  /**
+   * Explicit channel-load state. The channel is fetched here through the SAME
+   * shared lookup the Channel page uses — it is NOT read from transient
+   * context state — so this page also works on a direct refresh.
+   *   loading      → request in flight
+   *   success      → real channel loaded, form is rendered
+   *   notfound     → backend confirmed the account has no channel
+   *   routemissing → this backend exposes no channel route
+   *   error        → API / network / server error (never stuck on loading)
+   */
+  const [loadStatus, setLoadStatus] = useState<ChannelStatus>("loading");
+  const [loadError, setLoadError] = useState("");
+  const [loaded, setLoaded] = useState<ChannelData | null>(null);
+
   const photoInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    if (channel) {
-      setChannelName(channel.channelName || "");
-      setHandle(channel.handle || "");
-      setDescription(channel.description || "");
-      setContactEmail(channel.contactEmail || "");
-      setProfilePhotoUrl(channel.profilePhotoUrl);
-      setBannerUrl(channel.bannerUrl);
-      setLinks(Array.isArray(channel.links) ? channel.links : []);
-    }
-  }, [channel]);
+  const userId = user?.id != null ? String(user.id) : null;
 
-  if (!user || !channel) {
+  /** Authenticated GET /channel/me → GET /channel/:handle (see channel-service). */
+  const loadChannel = useCallback(async () => {
+    if (!userId) return;
+    setLoadStatus("loading");
+    setLoadError("");
+    try {
+      const result = await fetchCurrentUsersChannel(
+        { id: user?.id, username: user?.username },
+        userId
+      );
+      if (result.status === "success") {
+        setLoaded(result.channel);
+        setLoadStatus("success");
+        return;
+      }
+      setLoaded(null);
+      if (result.status === "notfound") {
+        setLoadStatus("notfound");
+        return;
+      }
+      if (result.status === "routemissing") {
+        setLoadStatus("routemissing");
+        return;
+      }
+      setLoadError(result.message);
+      setLoadStatus("error");
+    } catch (err) {
+      // An error must leave the loading state — never hang on "Loading...".
+      setLoadError(channelErrorMessage(err));
+      setLoadStatus("error");
+    }
+  }, [userId, user?.id, user?.username]);
+
+  useEffect(() => {
+    if (!userId) return;
+    loadChannel();
+  }, [userId, loadChannel]);
+
+  // Prefill with the REAL stored values — no placeholder content.
+  useEffect(() => {
+    if (!loaded) return;
+    setChannelName(loaded.displayName || "");
+    setHandle(loaded.username || "");
+    setDescription(loaded.bio || "");
+    setContactEmail(loaded.contactEmail || "");
+    setProfilePhotoUrl(loaded.avatarUrl);
+    setBannerUrl(loaded.bannerUrl);
+    setLinks(Array.isArray(loaded.links) ? loaded.links : []);
+  }, [loaded]);
+
+  if (!user) {
     return (
       <div className="max-w-3xl mx-auto px-6 py-16 text-sm text-zinc-500">
         Loading your channel...
+      </div>
+    );
+  }
+
+  // 1. LOADING — the channel request is actually still running.
+  if (loadStatus === "loading") {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6">
+        <div className="mb-6">
+          <div className="h-7 w-40 rounded bg-zinc-200 dark:bg-zinc-800 animate-pulse" />
+          <div className="h-3 w-64 mt-2 rounded bg-zinc-200/70 dark:bg-zinc-800/70 animate-pulse" />
+        </div>
+        <div className="space-y-4">
+          <div className="h-40 rounded-2xl bg-zinc-200 dark:bg-zinc-800 animate-pulse" />
+          <div className="h-24 rounded-2xl bg-zinc-200 dark:bg-zinc-800 animate-pulse" />
+          <div className="h-24 rounded-2xl bg-zinc-200 dark:bg-zinc-800 animate-pulse" />
+        </div>
+        <p className="mt-6 text-sm text-zinc-500">Loading your channel...</p>
+      </div>
+    );
+  }
+
+  // 3. NOT FOUND — only after the backend confirmed there is no channel.
+  if (loadStatus === "notfound" || loadStatus === "routemissing") {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
+        <EmptyState
+          title={
+            loadStatus === "notfound"
+              ? "You don't have a channel yet"
+              : "Channel information isn't available from this backend"
+          }
+          description={
+            loadStatus === "notfound"
+              ? "The server confirmed that your account has no channel record yet. Create your channel first, then edit it here."
+              : "This backend does not expose a channel route, so there is nothing to edit."
+          }
+          actionLabel="Go to Your Channel"
+          onAction={() => router.push(`/channel/${user.id}`)}
+        />
+      </div>
+    );
+  }
+
+  // 4. ERROR — real error state with a retry.
+  if (loadStatus === "error" || !loaded) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
+        <ErrorState
+          message={loadError || "Failed to load your channel."}
+          onRetry={loadChannel}
+        />
       </div>
     );
   }
@@ -125,17 +241,20 @@ function EditChannelContent() {
 
     setSaving(true);
     try {
-      const res = await fetch(apiUrl("/channels"), {
-        method: "PATCH",
+      // Save through the backend's EXISTING channel update route
+      // (verified live: PUT /api/v1/channel exists; the previous
+      // PATCH /api/v1/channels returns "Route not found" and could never save).
+      // Field names match the working POST /channel creation route.
+      const res = await fetch(apiUrl("/channel"), {
+        method: "PUT",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           channelName: channelName.trim(),
           handle: handle.trim(),
           description: description.trim(),
-          contactEmail: contactEmail.trim(),
-          profilePhotoUrl,
-          bannerUrl,
-          links: links.filter((l) => l.label.trim() && l.url.trim()),
+          logo: profilePhotoUrl || "",
+          banner: bannerUrl || "",
         }),
       });
       const data = await res.json();

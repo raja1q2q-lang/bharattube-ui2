@@ -40,9 +40,9 @@ function trimTrailingSlash(value: string): string {
  * VITE_API_URL name too, so the same value works in either project.
  */
 export const EXTERNAL_API_BASE: string = trimTrailingSlash(
-  process.env.NEXT_PUBLIC_API_URL ||
-    process.env.NEXT_PUBLIC_API_BASE_URL ||
-    process.env.VITE_API_URL ||
+  import.meta.env.VITE_NEXT_PUBLIC_API_URL ||
+    import.meta.env.VITE_NEXT_PUBLIC_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
     "https://bharattube-ylmq.onrender.com/api/v1"
 );
 
